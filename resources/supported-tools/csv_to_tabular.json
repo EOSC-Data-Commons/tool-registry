@@ -1,0 +1,74 @@
+{
+    "toolURI": "edc:tool.443001B3A5",
+    "typeURI": [
+        {"typeURI": "edc:fil.0CC5D33A9D"}
+    ],
+    "toolProperties": {
+        "toolLabel": "csv_to_tabular",
+        "toolDescription": "Convert CSV to tabular",
+        "toolHelp": "N/A",
+        "toolHelpURL": "https://usegalaxy.eu/root?tool_id=csv_to_tabular",
+        "toolCode": {
+            "toolCodeVersion": "1.0.0",
+            "toolCodeURI": "1.0.0url"
+        }
+    },
+    "instance": [
+        {
+            "instanceType": "TRL9",
+            "instanceLabel": "Galaxy",
+            "isReferenceInstance": "Yes",
+            "invocation": [
+                {
+                    "invocationURL": "N/A",
+                    "invocationPattern": "python '$__tool_directory__/tabular_csv.py' -o '$tabular' -i '$csv'",
+                    "invocationType": "CLI"
+                }
+            ],
+            "parameters": [
+                {
+                    "parameterPattern": "format=\"csv\" name=\"csv\" type=\"data\" label=\"Choose file with comma-separated values\"",
+                    "parameterType": "FORM"
+                }
+            ],
+            "outputs": [
+                {
+                    "outputPattern": "format=\"tabular\" name=\"tabular\"",
+                    "outputType": "FILE"
+                }
+            ]
+        },
+        {
+            "instanceType": "TEST",
+            "instanceLabel": "Galaxy Test",
+            "isReferenceInstance": "No",
+            "invocation": [
+                {
+                    "invocationURL": "N/A",
+                    "invocationPattern": "python '$__tool_directory__/tabular_csv.py' -o '$tabular' -i '$csv'",
+                    "invocationType": "CLI"
+                }
+            ],
+            "parameters": [
+                {
+                    "parameterPattern": "name=\"csv\" ftype=\"csv\" value=\"1.csv\"",
+                    "parameterType": "FORM"
+                }
+            ],
+            "outputs": [
+                {
+                    "outputPattern": "name=\"tabular\" ftype=\"tabular\" value=\"1.csv_to_tabular.tabular\"",
+                    "outputType": "FILE"
+                }
+            ]
+        }
+    ],
+    "requirements": [
+        {
+            "requiredType": "package",
+            "requiredVersion": "3.7",
+            "requiredValue": "python"
+        }
+    ],
+    "asynchCommsType": "DURL"
+}

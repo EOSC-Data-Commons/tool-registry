@@ -6,7 +6,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.environ["BASE_DIR"] = os.getenv("BASE_DIR", base_dir)
 
-from src.tool_registry.api import root, public
+from src.tool_registry.api import root, tools
 
 from akmi_utils.commons import build_date
 from akmi_utils import commons as a_commons
@@ -71,7 +71,7 @@ app = FastAPI(
 )
 
 app.include_router(root.router, tags=["Public"], prefix=API_PREFIX)
-app.include_router(public.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
+app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
 
 @app.exception_handler(StarletteHTTPException)
 async def custom_404_handler(request: Request, exc: StarletteHTTPException):

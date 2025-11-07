@@ -14,7 +14,6 @@ router = APIRouter()
 # replace for production with a persistent store as needed
 JOB_STORE: Dict[str, Dict] = {}
 
-
 # Small helper dataclass to produce the standardized tool summary dict
 @dataclass
 class ToolSummary:
@@ -31,31 +30,26 @@ class ToolSummary:
             "toolDescription": props.get("toolDescription", "")
         }
 
-
-# Returns a list of all supported tools (each item contains `toolURI`, `toolLabel`, `toolDescription`).
-@router.get("/", description="List all supported tools. Each item contains 'toolURI', 'toolLabel', and 'toolDescription'.")
-async def get_all_tools():
-    """
-    Handle GET requests to retrieve a list of all supported tools.
-
-    Returns:
-        list[dict]: A list of dictionaries, each containing the 'toolURI', 'toolLabel',
-        and 'toolDescription' of a supported tool.
-    """
-    return await get_tools()
-
 @router.get("/", description="Search for tools given query parameters.")
-async def search_tools(toolURI: Optional[str] = None, typeURI: Optional[str] = None) -> list[Any]:
+async def search_tools(toolURI: Optional[str] = None, typeURI: Optional[str] = None, inputFileExt: Optional[str] = None) -> list[Any]:
     """
     Search for tools based on provided query parameters.
 
     Args:
         toolURI (Optional[str]): The tool URI to search for.
         typeURI (Optional[str]): The type URI to search for.
+        inputFileExt (Optional[str]): The input file extension to search for.
+
+    If no Args are provided, all tools are returned.
 
     Returns:
         list[dict]: A list of ToolSummary dicts matching the search criteria.
     """
+
+    # Case 1 — no query params: return all
+    if toolURI is None and typeURI is None and inputFileExt is None:
+        return await get_tools()
+
     matches: list[Any] = []
 
     if toolURI:
@@ -68,41 +62,36 @@ async def search_tools(toolURI: Optional[str] = None, typeURI: Optional[str] = N
         if result:
             matches.append(result)
 
+    if inputFileExt:
+        result = await get_tools_by_input_extension(inputFileExt)
+        if result:
+            matches.extend(result)
+
     if not matches:
         raise HTTPException(status_code=404, detail="No matching tools found")
 
     return matches
 
-
 # Returns a single tool matching `identifier
 # Supports:
-#  - `edc:fil.<...>` -> match by file type (`typeURI`)
 #  - `edc:tool.<...>` -> match by tool URI (`toolURI`)
-@router.get("/{identifier}", description="Retrieve a single tool matching the provided filter. Supports 'edc:fil.*' (typeURI) and 'edc:tool.*' (toolURI).")
-# async def get_tools_by_identifier(request: Request, identifier: Optional[str] = None):
+@router.get("/{identifier}", description="Retrieve a single tool by toolURI.")
 async def get_tools_by_identifier(identifier: str):
     """
     Handle GET requests to retrieve tools or identifier them based on a specific URI.
 
     This endpoint supports two routes:
-    1. `/` - Returns a list of all tools.
     2. `/{identifier}` - Filters tools based on the provided `identifier` parameter.
 
     Args:
         request (Request): The incoming HTTP request object.
         identifier (Optional[str]): A string used to filter tools. It can start with:
-            - "edc:fil." to filter by file type (typeURI).
             - "edc:tool." to filter by tool URI (toolURI).
 
     Returns:
         list[dict] or dict: A list of all tools if no identifier is provided, or a single
         tool matching the identifier criteria. Returns an empty dictionary if no match is found.
     """
-    # if not identifier:
-    #     return await get_tools()
-    # if identifier.startswith("edc:fil."):
-    #     return await find_tool(match_type="typeURI", match_value=identifier)
-
     if identifier.startswith("edc:tool."):
         results = await find_tool(match_type="toolURI", match_value=identifier)
         if not results:
@@ -154,7 +143,6 @@ async def get_tools() -> list[Any]:
             tools.append(ToolSummary("toolURI", tool_uri, props).to_dict())
     return tools
 
-
 async def find_tool(match_type: str, match_value: str) -> dict:
     return find_tool_sync(match_type, match_value)
 
@@ -181,8 +169,7 @@ def find_tool_sync(match_type: str, match_value: str) -> dict:
 
     return {}
 
-
-    # New endpoint: find tools that accept a given input extension
+# New endpoint: find tools that accept a given input extension
 @router.get("/input/{ext}", description="List tools that accept the given input file extension (e.g. 'csv', 'tsv').")
 async def get_tools_by_input_extension(ext: str) -> list[Any]:
     """Return a list of ToolSummary dicts for tools that declare an input with the provided extension.
@@ -205,14 +192,12 @@ async def get_tools_by_input_extension(ext: str) -> list[Any]:
                     break  # one match per tool is enough
     return matches
 
-
 def _get_supported_tools_base() -> Path:
     # lazy import to avoid circular import with `src.main`
     from src.main import app_settings
     base = Path(app_settings.SUPPORTED_TOOLS_DIR)
     # print("SUPPORTED_TOOLS_DIR", base)
     return base
-
 
 def _iter_tool_data() -> Iterator[dict]:
     """Yield parsed JSON dicts for each .json tool file in the supported-tools dir."""

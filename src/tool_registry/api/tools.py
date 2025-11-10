@@ -4,7 +4,7 @@ import time
 import asyncio
 
 from typing import Any, Optional, Iterator
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from pathlib import Path
 from typing import Dict
 from dataclasses import dataclass
@@ -51,7 +51,7 @@ class ToolSummary:
         }
 
 @router.get("/", description="Search for tools given query parameters.")
-async def search_tools(toolURI: Optional[str] = None, typeURI: Optional[str] = None, inputFileExt: Optional[str] = None) -> list[Any]:
+async def search_tools(request: Request, toolURI: Optional[str] = None, typeURI: Optional[str] = None, inputFileExt: Optional[str] = None) -> list[Any]:
     """
     Search for tools based on provided query parameters.
 
@@ -67,7 +67,7 @@ async def search_tools(toolURI: Optional[str] = None, typeURI: Optional[str] = N
     """
 
     # Case 1 — no query params: return all
-    if toolURI is None and typeURI is None and inputFileExt is None:
+    if not request.query_params:
         return await get_tools()
 
     # Case 2 — one or more query params: filter accordingly

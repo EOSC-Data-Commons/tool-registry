@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import asyncio
 
 from src.tool_registry.api import root, tools, jobs
 
@@ -88,6 +89,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def main():
+    config = uvicorn.Config(
+        app="src.main:app",
+        host="0.0.0.0",
+        port=port,
+        workers=num_workers,
+        factory=False,
+        reload=reload_flag,
+    )
+    server = uvicorn.Server(config)
+
+    # Start periodic housekeeping tasks
+    jobs.start_periodic_housekeeping()
+    await server.serve()
+
 
 if __name__ == "__main__":
     # read NUM_WORKERS safely, default to None when not present
@@ -119,11 +135,5 @@ if __name__ == "__main__":
 
     print(f"Starting server with {num_workers} workers on port {port}")
 
-    uvicorn.run(
-        "src.main:app",
-        host="0.0.0.0",
-        port=port,
-        workers=num_workers,
-        factory=False,
-        reload=reload_flag,
-    )
+    # Start asyncio event loop and run main in it
+    asyncio.run(main())

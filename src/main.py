@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import asyncio
 
 from src.tool_registry.api import root, tools, jobs
 
@@ -58,7 +59,8 @@ print(project_details)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    logging.info("start up")
+    logging.info("Starting up")
+    jobs.start_periodic_housekeeping()
     yield
 
 
@@ -72,6 +74,7 @@ app = FastAPI(
 app.include_router(root.router, tags=["Public"], prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
 app.include_router(jobs.router, tags=["Jobs"], prefix=f"{API_PREFIX}/jobs")
+
 
 @app.exception_handler(StarletteHTTPException)
 async def custom_404_handler(request: Request, exc: StarletteHTTPException):
@@ -87,6 +90,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+async def main():
+    config = uvicorn.Config(
+        app="src.main:app",
+        host="0.0.0.0",
+        port=port,
+        workers=num_workers,
+        factory=False,
+        reload=reload_flag,
+    )
+    server = uvicorn.Server(config)
+
+    await server.serve()
 
 
 if __name__ == "__main__":
@@ -119,11 +135,5 @@ if __name__ == "__main__":
 
     print(f"Starting server with {num_workers} workers on port {port}")
 
-    uvicorn.run(
-        "src.main:app",
-        host="0.0.0.0",
-        port=port,
-        workers=num_workers,
-        factory=False,
-        reload=reload_flag,
-    )
+    # Start asyncio event loop and run main in it
+    asyncio.run(main())

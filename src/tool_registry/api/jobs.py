@@ -15,8 +15,9 @@ async def clean_db():
     now = time.time()
     to_delete = []
     for job_id, job in JOB_STORE.items():
-        if now - job["timestamp"] > 3600:  # 1 hour expiration
-            to_delete.append(job_id)
+        if job["status"] == "completed" and "completed_timestamp" in job:
+            if now - job["completed_timestamp"] > 3600:  # 1 hour expiration
+                to_delete.append(job_id)
     for job_id in to_delete:
         del JOB_STORE[job_id]
 
@@ -26,8 +27,9 @@ async def periodic_housekeeping():
         await asyncio.sleep(60)
 
 # Start the periodic housekeeping task
-asyncio.get_running_loop().create_task(periodic_housekeeping())
-
+def start_periodic_housekeeping():
+    asyncio.get_running_loop().create_task(periodic_housekeeping())
+    
 
 
 @router.get("/{job_id}", description="Check the status of a search job.")

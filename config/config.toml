@@ -1,0 +1,19 @@
+[logging]
+log_file = "@format {env[BASE_DIR]}/logs/tlr.log"
+log_level = "DEBUG"
+use_detailed_format = true
+log_format = "%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s"
+
+[database]
+host = "localhost"
+port = 5432
+name = "admin"
+user = "harvester"
+password = ""
+
+[service]
+name = "Tool Registry"
+listen_port = 8181
+bind_address = "127.0.0.1"
+api_prefix = "/api/v1"
+admin_auth_key = "changeme"

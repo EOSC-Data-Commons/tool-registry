@@ -1,13 +1,16 @@
 import json
-import uuid
-import time
 import logging
-
+from pydantic import BaseModel
 from typing import Any, Optional, Iterator
-from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
 from dataclasses import dataclass
-# from .jobs import JOB_STORE  # Reuse JOB_STORE from jobs.py
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import or_, and_
+from toolmeta_harvester.db.models import GalaxyWorkflowArtifact
+from tool_registry.db import get_db
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,60 +34,138 @@ class ToolSummary:
         }
 
 
-@router.get("/", description="Search for tools given query parameters.")
-async def search_tools(
-    request: Request,
-    toolURI: Optional[str] = None,
-    typeURI: Optional[str] = None,
-    inputFileExt: Optional[str] = None,
-) -> list[Any]:
-    """
-    Search for tools based on provided query parameters.
+class ToolOut(BaseModel):
+    id: str
+    name: str
+    description: Optional[str]
+    url: str
+    version: Optional[str]
+    input_toolshed_tools: Optional[list[str]]
+    output_toolshed_tools: Optional[list[str]]
+    toolshed_tools: Optional[list[str]]
+    tags: Optional[list[str]]
 
-    Args:
-        toolURI (Optional[str]): The tool URI to search for.
-        typeURI (Optional[str]): The type URI to search for.
-        inputFileExt (Optional[str]): The input file extension to search for.
-
-    If no Args are provided, all tools are returned.
-
-    Returns:
-        list[dict]: A list of ToolSummary dicts matching the search criteria.
-    """
-
-    # Case 1 — no query params: return all
-    if not request.query_params:
-        return await get_tools()
-
-    # Case 2 — one or more query params: filter accordingly
-    matches: list[Any] = []
-
-    if toolURI:
-        result = await find_tool(match_type="toolURI", match_value=toolURI)
-        if result:
-            matches.append(result)
-
-    if typeURI:
-        result = await find_tool(match_type="typeURI", match_value=typeURI)
-        if result:
-            matches.append(result)
-
-    if inputFileExt:
-        result = await get_tools_by_input_extension(inputFileExt)
-        if result:
-            matches.extend(result)
-
-    if not matches:
-        raise HTTPException(status_code=404, detail="No matching tools found")
-
-    return matches
+    class Config:
+        orm_mode = True
+        from_attributes = True
 
 
+class ToolSearchParams(BaseModel):
+    name: Optional[str] = None
+    input_extension: Optional[str] = None
+
+
+@router.get(
+    "/",
+    # response_model=list[ToolOut],
+    tags=["tools"],
+    description="Search for tools given query parameters.",
+)
+async def list_tools(
+    search: ToolSearchParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(GalaxyWorkflowArtifact)
+    if search.name:
+        logger.info(f"Searching for tools with name like: {search.name}")
+        query = query.where(GalaxyWorkflowArtifact.name.ilike(f"%{search.name}%"))
+    if search.input_extension:
+        query = query.where(
+            GalaxyWorkflowArtifact.input_toolshed_tools.any(
+                f"%{search.input_extension}%"
+            )
+        )
+    logger.info(f"Executing tool search with query: {query}")
+    result = await db.execute(query)
+    tools = result.scalars().all()
+    logger.info(f"Found {len(tools)} tools matching search criteria.")
+    return [ToolOut.from_orm(tool) for tool in tools]
+
+
+# @router.get("/", description="Search for tools given query parameters.")
+# async def search_tools(
+#     request: Request,
+#     toolURI: Optional[str] = None,
+#     typeURI: Optional[str] = None,
+#     inputFileExt: Optional[str] = None,
+# ) -> list[Any]:
+#
+#     # Case 1 — no query params: return all
+#     if not request.query_params:
+#         return await get_tools()
+#
+#     # Case 2 — one or more query params: filter accordingly
+#     matches: list[Any] = []
+#
+#     if toolURI:
+#         result = await find_tool(match_type="toolURI", match_value=toolURI)
+#         if result:
+#             matches.append(result)
+#
+#     if typeURI:
+#         result = await find_tool(match_type="typeURI", match_value=typeURI)
+#         if result:
+#             matches.append(result)
+#
+#     if inputFileExt:
+#         result = await get_tools_by_input_extension(inputFileExt)
+#         if result:
+#             matches.extend(result)
+#
+#     if not matches:
+#         raise HTTPException(status_code=404, detail="No matching tools found")
+#
+#     return matches
+#
+# async def search_tools(
+#     request: Request,
+#     toolURI: Optional[str] = None,
+#     typeURI: Optional[str] = None,
+#     inputFileExt: Optional[str] = None,
+# ) -> list[Any]:
+#     """
+#     Search for tools based on provided query parameters.
+#
+#     Args:
+#         toolURI (Optional[str]): The tool URI to search for.
+#         typeURI (Optional[str]): The type URI to search for.
+#         inputFileExt (Optional[str]): The input file extension to search for.
+#
+#     If no Args are provided, all tools are returned.
+#
+#     Returns:
+#         list[dict]: A list of ToolSummary dicts matching the search criteria.
+#     """
+#
+#     # Case 1 — no query params: return all
+#     if not request.query_params:
+#         return await get_tools()
+#
+#     # Case 2 — one or more query params: filter accordingly
+#     matches: list[Any] = []
+#
+#     if toolURI:
+#         result = await find_tool(match_type="toolURI", match_value=toolURI)
+#         if result:
+#             matches.append(result)
+#
+#     if typeURI:
+#         result = await find_tool(match_type="typeURI", match_value=typeURI)
+#         if result:
+#             matches.append(result)
+#
+#     if inputFileExt:
+#         result = await get_tools_by_input_extension(inputFileExt)
+#         if result:
+#             matches.extend(result)
+#
+#     if not matches:
+#         raise HTTPException(status_code=404, detail="No matching tools found")
+#
+#     return matches
 # Returns a single tool matching `identifier
 # Supports:
 #  - `edc:tool.<...>` -> match by tool URI (`toolURI`)
-
-
 @router.get("/{identifier}", description="Retrieve a single tool by toolURI.")
 async def get_tools_by_identifier(identifier: str):
     """
@@ -108,8 +189,7 @@ async def get_tools_by_identifier(identifier: str):
             raise HTTPException(status_code=404, detail="Tool not found")
         return results
     else:
-        raise HTTPException(
-            status_code=400, detail="Invalid identifier format")
+        raise HTTPException(status_code=400, detail="Invalid identifier format")
 
 
 # POST endpoint to batch search for tools.
@@ -189,8 +269,7 @@ def find_tool_sync(match_type: str, match_value: str) -> dict:
         elif match_type == "typeURI":
             type_entries = data.get("typeURI", [])
             for entry in type_entries:
-                entry_val = entry.get("typeURI") if isinstance(
-                    entry, dict) else entry
+                entry_val = entry.get("typeURI") if isinstance(entry, dict) else entry
                 if entry_val == match_value:
                     props = data.get("toolProperties", {})
                     return ToolSummary("typeURI", match_value, props).to_dict()
@@ -215,8 +294,7 @@ async def get_tools_by_input_extension(ext: str) -> list[Any]:
 
     for data in _iter_tool_data():
         filetypes = data.get("fileTypes", {})
-        inputs = filetypes.get("input", []) if isinstance(
-            filetypes, dict) else []
+        inputs = filetypes.get("input", []) if isinstance(filetypes, dict) else []
         for item in inputs:
             item_ext = (
                 (item.get("extension") or "").lower().lstrip(".")
@@ -227,8 +305,7 @@ async def get_tools_by_input_extension(ext: str) -> list[Any]:
                 tool_uri = data.get("toolURI")
                 props = data.get("toolProperties", {})
                 if tool_uri:
-                    matches.append(ToolSummary(
-                        "toolURI", tool_uri, props).to_dict())
+                    matches.append(ToolSummary("toolURI", tool_uri, props).to_dict())
                     break  # one match per tool is enough
     return matches
 

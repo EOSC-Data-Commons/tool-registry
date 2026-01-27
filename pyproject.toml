@@ -8,8 +8,7 @@ requires-python = ">=3.12.8"
 dependencies = [
     "dynaconf>=3.2.12",
     "fastapi>=0.128.0",
+    "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@main",
+    "uvicorn>=0.40.0",
 ]
-
-
-
 

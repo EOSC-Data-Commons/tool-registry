@@ -1,5 +1,5 @@
 export PYTHONPATH := $(PWD)/src:$(PYTHONPATH)
-PORT ?= 8001
+PORT ?= 8080
 
 .PHONY: run sync force-sync install
 run: sync

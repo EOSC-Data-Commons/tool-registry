@@ -17,7 +17,7 @@ app = FastAPI(
     # version=f"{project_details['version']} (Build Date: {build_date})",
 )
 
-app.include_router(root.router, tags=["Public"], prefix=API_PREFIX)
+app.include_router(root.router, prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
 
 

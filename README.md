@@ -8,7 +8,7 @@
 ## 🚧 Phase 1 — Core Tool Management (Current)
 - [x] Project scaffolding and initial architecture
 - [x] API endpoint to query by file format extension
-- [ ] Authenticate users with EGI check-in
+- [x] Authenticate users with EGI check-in
 - [ ] User table to manage tool ownership and permissions
 - [ ] API endpoint to add a new tool with metadata and contract
 - [ ] API endpoint to update/remove existing tools

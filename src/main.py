@@ -2,6 +2,7 @@ import logging
 
 from tool_registry.api import root, tools
 from tool_registry.config import load_service_config, init_logging
+from tool_registry.security import ADMIN_TOKEN
 
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -10,6 +11,8 @@ init_logging()
 logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
+
+logger.info(f"Admin token: {ADMIN_TOKEN}")
 
 app = FastAPI(
     # title=project_details["title"],

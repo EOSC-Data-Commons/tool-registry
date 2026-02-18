@@ -1,6 +1,7 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from starlette.responses import JSONResponse
+from tool_registry.security import validate_token
 
 logger = logging.getLogger(__name__)
 
@@ -33,3 +34,13 @@ async def root():
 @router.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "healthy"}
+
+
+@router.get("/auth", tags=["Authentication"])
+async def auth_check(
+    user_info=Depends(validate_token),
+):
+    if user_info:
+        return user_info
+
+    return JSONResponse(status_code=401, content={"message": "Unauthorized"})

@@ -10,6 +10,7 @@ import rdflib
 
 from toolmeta_harvester.db.models import GalaxyWorkflowArtifact
 from tool_registry.db import get_db
+from tool_registry.security import validate_token
 from tool_registry.config import load_oxigraph_config
 
 
@@ -89,7 +90,7 @@ async def search_galaxy_tools(
 
 
 @router.post("/", description="Create a new tool by uploading a json-ld or turtle description.", tags=["Tools"])
-async def add_tool(request: Request):
+async def add_tool(request: Request, user_info=Depends(validate_token)):
     content_type = request.headers.get("Content-Type", "")
     logger.debug(f"Received request to add tool with content type: {content_type}")
     if content_type not in ["application/ld+json", "text/turtle"]:

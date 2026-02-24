@@ -15,8 +15,16 @@ force-sync:
 	rm uv.lock
 	uv sync --force-reinstall
 
+build: build-docker
+
 build-docker:
 	docker build -t tool-registry:latest .
+
+up: build
+	docker compose up -d
+
+down:
+	docker compose down
 
 run-docker:
 	docker run -e PORT=$(PORT) -v ./config:/app/config tool-registry:latest

@@ -3,22 +3,23 @@ version: "3.9"
 services:
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:0.4.0
-    ports:
-      - "7878:7878"
+    # ports:
+    #   - "7878:7878"
     command: ["serve", "--bind", "0.0.0.0:7878", "--location", "/data"]
     volumes:
       - oxigraph_data:/data
     restart: unless-stopped
 
-  # api:
-  #   build:
-  #     context: ./app
-  #     dockerfile: Dockerfile
-  #   environment:
-  #     OXIGRAPH_ENDPOINT: http://oxigraph:7878
-  #   depends_on:
-  #     - oxigraph
-  #   restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/:/app/config
+    depends_on:
+      - oxigraph
 
 volumes:
   oxigraph_data:

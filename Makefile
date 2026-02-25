@@ -8,6 +8,9 @@ run: sync
 install:
 	uv sync --frozen --no-cache
 
+oxigraph:
+	docker compose up -d oxigraph
+
 sync:
 	uv sync 
 

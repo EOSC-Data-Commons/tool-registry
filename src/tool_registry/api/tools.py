@@ -2,6 +2,7 @@ import logging
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
+from urllib.parse import unquote
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists, func, literal_column
 from sqlalchemy import any_
@@ -162,81 +163,204 @@ async def search_tools(fileExtension: str = Query(...)):
 
     return response.json()
 
+@router.get("/{tool_id:path}", description="Retrieve a single tool by its identifier.", tags=["Tools"])
+async def get_Tool(tool_id: str):
+    tool_iri = unquote(tool_id)
+    logger.info(f"Retrieving tool with IRI: {tool_iri}")
+
+    if not tool_iri.startswith("http"):
+        raise HTTPException(status_code=400, detail="Tool ID must be full IRI")
+
+    sparql = f"""
+    PREFIX tool:   <https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#>
+    PREFIX schema: <https://schema.org/>
+
+    CONSTRUCT {{
+      ?tool a schema:SoftwareApplication, ?toolType ;
+            schema:name ?name ;
+            tool:hasInterface ?iface .
+
+      ?iface tool:interfaceVersion ?ifaceVersion ;
+             tool:hasInput ?input ;
+             tool:hasOutput ?output .
+
+      ?input tool:fileExtension ?inExt ;
+             tool:inputType ?inType .
+
+      ?output tool:fileExtension ?outExt ;
+              tool:inputType ?outType .
+    }}
+    WHERE {{
+        VALUES ?tool {{ <{tool_iri}> }}
+        OPTIONAL {{ ?tool schema:name ?name }}
+
+        OPTIONAL {{
+            ?tool a ?toolType .
+            FILTER(?toolType != schema:SoftwareApplication)
+        }}
+
+        OPTIONAL {{
+            ?tool tool:hasInterface ?iface .
+            OPTIONAL {{ ?iface tool:interfaceVersion ?ifaceVersion }}
+
+            OPTIONAL {{
+            ?iface tool:hasInput ?input .
+            OPTIONAL {{ ?input tool:fileExtension ?inExt }}
+            OPTIONAL {{ ?input tool:inputType ?inType }}
+            }}
+
+            OPTIONAL {{
+            ?iface tool:hasOutput ?output .
+            OPTIONAL {{ ?output tool:fileExtension ?outExt }}
+            OPTIONAL {{ ?output tool:inputType ?outType }}
+            }}
+        }}
+    }}
+    """
+    logger.debug(f"Executing SPARQL: {sparql}")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{OXIGRAPH}/query",
+            params={"default-graph-uri": TOOLS_GRAPH},
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/n-triples"
+            },
+        )
+    if response.status_code >= 400:
+        raise HTTPException(status_code=500, detail=response.text)
+
+    # Parse and re-serialize with prefixes
+    g = rdflib.Graph()
+    g.parse(data=response.text, format="nt")
+
+    if len(g) == 0:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    # Compact context
+    context = {
+        "tool": "https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#",
+        "schema": "https://schema.org/",
+        "name": "schema:name",
+        "hasInterface": "tool:hasInterface",
+        "hasInput": "tool:hasInput",
+        "hasOutput": "tool:hasOutput",
+        "fileExtension": "tool:fileExtension",
+        "inputType": {"@id": "tool:inputType", "@type": "@id"},
+        "interfaceVersion": "tool:interfaceVersion",
+        "@vocab": "https://schema.org/"
+    }
+
+    # g.bind("tool", "https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#")
+    # g.bind("schema", "https://schema.org/")
+    #
+    # turtle = g.serialize(format="ld+json")
+
+    jsonld = g.serialize(
+        format="json-ld",
+        context=context,
+        indent=2
+    )
+
+    return Response(content=jsonld, media_type="application/ld+json")
+
 @router.get("/", description="List all tools in the registry.", tags=["Tools"])
 async def list_tools():
     sparql = """
-        PREFIX tool:   <https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#>
-        PREFIX schema: <https://schema.org/>
+    PREFIX schema: <https://schema.org/>
 
-        CONSTRUCT {
-        ?tool a schema:SoftwareApplication ;
-                schema:name ?name ;
-                tool:hasInterface ?iface ;
-                a ?toolType .
-
-        ?iface tool:interfaceVersion ?ifaceVersion ;
-                tool:hasInput ?input ;
-                tool:hasOutput ?output .
-
-        ?input tool:fileExtension ?inExt ;
-                tool:inputType ?inType .
-
-        ?output tool:fileExtension ?outExt ;
-                tool:inputType ?outType .
-        }
-        WHERE {
-
+    SELECT DISTINCT ?tool ?name
+    WHERE {
         ?tool a schema:SoftwareApplication .
-
         OPTIONAL { ?tool schema:name ?name }
-
-        OPTIONAL {
-            ?tool a ?toolType .
-            FILTER(?toolType != schema:SoftwareApplication)
-        }
-
-        OPTIONAL {
-            ?tool tool:hasInterface ?iface .
-            OPTIONAL { ?iface tool:interfaceVersion ?ifaceVersion }
-
-            OPTIONAL {
-            ?iface tool:hasInput ?input .
-            OPTIONAL { ?input tool:fileExtension ?inExt }
-            OPTIONAL { ?input tool:inputType ?inType }
-            }
-
-            OPTIONAL {
-            ?iface tool:hasOutput ?output .
-            OPTIONAL { ?output tool:fileExtension ?outExt }
-            OPTIONAL { ?output tool:inputType ?outType }
-            }
-        }
-        }
+    }
+    ORDER BY ?name
     """
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{OXIGRAPH}/query",
             params={"default-graph-uri": TOOLS_GRAPH},
             content=sparql,
-            headers={"Content-Type": "application/sparql-query",
-                     "Accept": "text/turtle"},
+            headers={"Content-Type": "application/sparql-query"},
         )
 
-    if response.status_code >= 400:
-        raise HTTPException(status_code=500, detail=response.text)
-
-    g = rdflib.Graph()
-    g.parse(data=response.text, format="turtle")
-    g.bind("schema", "https://schema.org/")
-    g.bind("eosc:dc", "https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#")
-
-    turtle_data = g.serialize(format="turtle")
-
-    return Response(
-            content=turtle_data,
-            media_type="text/turtle",
-        )
-
+    return response.json()
+# async def list_tools():
+#     sparql = """
+#         PREFIX tool:   <https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#>
+#         PREFIX schema: <https://schema.org/>
+#
+#         CONSTRUCT {
+#         ?tool a schema:SoftwareApplication ;
+#                 schema:name ?name ;
+#                 tool:hasInterface ?iface ;
+#                 a ?toolType .
+#
+#         ?iface tool:interfaceVersion ?ifaceVersion ;
+#                 tool:hasInput ?input ;
+#                 tool:hasOutput ?output .
+#
+#         ?input tool:fileExtension ?inExt ;
+#                 tool:inputType ?inType .
+#
+#         ?output tool:fileExtension ?outExt ;
+#                 tool:inputType ?outType .
+#         }
+#         WHERE {
+#
+#         ?tool a schema:SoftwareApplication .
+#
+#         OPTIONAL { ?tool schema:name ?name }
+#
+#         OPTIONAL {
+#             ?tool a ?toolType .
+#             FILTER(?toolType != schema:SoftwareApplication)
+#         }
+#
+#         OPTIONAL {
+#             ?tool tool:hasInterface ?iface .
+#             OPTIONAL { ?iface tool:interfaceVersion ?ifaceVersion }
+#
+#             OPTIONAL {
+#             ?iface tool:hasInput ?input .
+#             OPTIONAL { ?input tool:fileExtension ?inExt }
+#             OPTIONAL { ?input tool:inputType ?inType }
+#             }
+#
+#             OPTIONAL {
+#             ?iface tool:hasOutput ?output .
+#             OPTIONAL { ?output tool:fileExtension ?outExt }
+#             OPTIONAL { ?output tool:inputType ?outType }
+#             }
+#         }
+#         }
+#     """
+#     async with httpx.AsyncClient() as client:
+#         response = await client.post(
+#             f"{OXIGRAPH}/query",
+#             params={"default-graph-uri": TOOLS_GRAPH},
+#             content=sparql,
+#             headers={"Content-Type": "application/sparql-query",
+#                      "Accept": "text/turtle"},
+#         )
+#
+#     if response.status_code >= 400:
+#         raise HTTPException(status_code=500, detail=response.text)
+#
+#     g = rdflib.Graph()
+#     g.parse(data=response.text, format="turtle")
+#     g.bind("schema", "https://schema.org/")
+#     g.bind("eosc:dc", "https://eosc-data-commons.github.io/toolmeta-vocab/toolmeta#")
+#
+#     turtle_data = g.serialize(format="turtle")
+#
+#     return Response(
+#             content=turtle_data,
+#             media_type="text/turtle",
+#         )
+#
 
 # @router.get(
 #     "/",

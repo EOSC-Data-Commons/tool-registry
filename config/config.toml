@@ -10,6 +10,14 @@ name = "admin"
 user = "harvester"
 password = ""
 
+[oxigraph]
+host = "localhost"
+port = 7878
+namespace = "http://eosc-data-commons.eu/graph/tools"
+user = ""
+password = ""
+
+
 [service]
 name = "Tool Registry"
 listen_port = 8181

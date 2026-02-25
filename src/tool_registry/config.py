@@ -44,6 +44,15 @@ def load_service_config() -> ServiceConfig:
         admin_auth_key=settings.service.admin_auth_key,
     )
 
+def load_oxigraph_config() -> dict:
+    db = settings.oxigraph
+    return DatabaseConfig(
+        host=db.host,
+        port=db.port,
+        user=db.user,
+        password=db.password,
+        name=db.namespace,
+    )
 
 def load_db_config() -> dict:
     db = settings.database

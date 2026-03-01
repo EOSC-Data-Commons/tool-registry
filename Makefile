@@ -1,5 +1,6 @@
 export PYTHONPATH := $(PWD)/src:$(PYTHONPATH)
 PORT ?= 8080
+HOST_PORT ?= 8080
 
 .PHONY: run sync force-sync install
 run: sync
@@ -28,5 +29,5 @@ build-docker:
 	docker build -t tool-registry:latest .
 
 run-docker:
-	docker run -e PORT=$(PORT) -v ./config:/app/config tool-registry:latest
+	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config tool-registry:latest
 

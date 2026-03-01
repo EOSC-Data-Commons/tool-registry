@@ -3,9 +3,10 @@ from pydantic import BaseModel
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, exists, func, literal_column
+from sqlalchemy import select
 from sqlalchemy import any_
-from toolmeta_harvester.db.models import GalaxyWorkflowArtifact
+from datetime import datetime
+from toolmeta_models import ToolGeneric
 from tool_registry.db import get_db
 
 
@@ -15,20 +16,26 @@ router = APIRouter()
 
 class ToolOut(BaseModel):
     id: int
-    uuid: str
+    uri: str
+    location: str
     name: str
     description: Optional[str]
-    url: str
     version: Optional[str]
-    input_formats: Optional[list[str]]
-    output_formats: Optional[list[str]]
-    input_toolshed_tools: Optional[list[str]]
-    output_toolshed_tools: Optional[list[str]]
-    toolshed_tools: Optional[list[str]]
-    tags: Optional[list[str]]
+    archetype: Optional[str]
+    input_file_formats: Optional[list[str]]
+    output_file_formats: Optional[list[str]]
 
     class Config:
         from_attributes = True
+
+class ToolOutExt(ToolOut):
+    raw_metadata: Optional[dict]
+    metadata_schema: Optional[dict]
+    metadata_version: Optional[str]
+    metadata_type: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+    created_by: str
 
 
 class ToolSearchParams(BaseModel):
@@ -38,40 +45,31 @@ class ToolSearchParams(BaseModel):
     tag: Optional[str] = None
 
 
-async def get_galaxy_tool_by_uuid(
-    uuid: str, db: AsyncSession
-) -> Optional[GalaxyWorkflowArtifact]:
-    query = select(GalaxyWorkflowArtifact).where(
-        GalaxyWorkflowArtifact.uuid == uuid)
+async def get_tool_by_id(
+    id: int, db: AsyncSession
+) -> Optional[ToolGeneric]:
+    query = select(ToolGeneric).where(
+        ToolGeneric.id == id)
     result = await db.execute(query)
     tool = result.scalars().first()
     return tool
 
 
-async def search_galaxy_tools(
+async def search_tools_in_db(
     search: ToolSearchParams, db: AsyncSession
-) -> list[GalaxyWorkflowArtifact]:
-    query = select(GalaxyWorkflowArtifact)
+) -> list[ToolGeneric]:
+    query = select(ToolGeneric)
     if search.name:
         logger.info(f"Searching for tools with name like: {search.name}")
         query = query.where(
-            GalaxyWorkflowArtifact.name.ilike(f"%{search.name}%"))
+            ToolGeneric.name.ilike(f"%{search.name}%"))
     if search.input_format:
         query = query.where(
-            search.input_format == any_(GalaxyWorkflowArtifact.input_formats)
+            search.input_format == any_(ToolGeneric.input_file_formats)
         )
     if search.output_format:
         query = query.where(
-            search.output_format == any_(GalaxyWorkflowArtifact.output_formats)
-        )
-    if search.tag:
-        tag = literal_column("tag")
-        query = query.where(
-            exists(
-                select(1)
-                .select_from(func.unnest(GalaxyWorkflowArtifact.tags).alias("tag"))
-                .where(tag.ilike(f"%{search.tag}%"))
-            )
+            search.output_format == any_(ToolGeneric.output_file_formats)
         )
     logger.debug(f"Executing tool search with query: {query}")
     result = await db.execute(query)
@@ -101,11 +99,6 @@ async def search_tools(
         description="Filter tools by output format.",
         example="cram",
     ),
-    tag: Optional[str] = Query(
-        None,
-        description="Filter tools by tag.",
-        example="covid",
-    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -115,32 +108,32 @@ async def search_tools(
         name=name,
         input_format=input_format,
         output_format=output_format,
-        tag=tag,
     )
-    tools = await search_galaxy_tools(search, db)
+    tools = await search_tools_in_db(search, db)
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
     return [ToolOut.from_orm(tool) for tool in tools]
 
 
 @router.get(
     "/{identifier}",
-    response_model=ToolOut,
+    response_model=ToolOutExt,
     description="Retrieve a single tool by uuid.",
     tags=["Tools"],
 )
 async def get_tools_by_identifier(
     identifier: str = Path(
         ...,
-        description="The UUID of the tool to retrieve.",
-        example="123e4567-e89b-12d3-a456-426614174000",
+        description="The internal id of the tool to retrieve.",
+        example="5",
     ),
     db: AsyncSession = Depends(get_db),
 ):
+    logger.debug(f"Received request to retrieve tool with ID: {identifier}")
     """
-    Retrieve a single tool by its UUID.
+    Retrieve a single tool by its ID.
     """
-    tool = await get_galaxy_tool_by_uuid(identifier, db)
+    tool = await get_tool_by_id(int(identifier), db)
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.uuid})")
-    return ToolOut.from_orm(tool)
+    logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
+    return ToolOutExt.from_orm(tool)

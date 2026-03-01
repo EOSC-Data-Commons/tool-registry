@@ -8,6 +8,15 @@ run: sync
 install:
 	uv sync --frozen --no-cache
 
+.PHONY: re-install install
+re-install: clean sync
+
+.PHONY: clean
+clean:
+	uv clean
+	rm uv.lock
+	rm -rf .venv/lib/python3.12/site-packages/toolmeta_models/
+
 sync:
 	uv sync 
 

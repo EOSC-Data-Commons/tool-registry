@@ -14,7 +14,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 from jwt import PyJWKClient
 
-from src.tool_registry.config import load_service_config
+from tool_registry.config import load_service_config
 
 
 service_config = load_service_config()

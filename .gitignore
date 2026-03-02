@@ -1,5 +1,13 @@
 # conf
 **/.secrets.toml
+cache/
+
+*.override.yml
+*.dev.yml
+*.production.yml
+*.override.yaml
+*.dev.yaml
+*.production.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

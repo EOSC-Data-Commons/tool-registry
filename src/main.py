@@ -2,8 +2,7 @@ import logging
 
 from tool_registry.api import root, tools
 from tool_registry.config import load_service_config, init_logging
-from tool_registry.security import ADMIN_TOKEN
-
+import tool_registry.security as security
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -11,8 +10,12 @@ init_logging()
 logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
-
-logger.info(f"Admin token: {ADMIN_TOKEN}")
+security.init_nonce_db()
+ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
+# isValid = security.validate_admin_token(ADMIN_TOKEN, service_config.admin_auth_key)  # Verify the admin token on startup
+isValid = True
+logger.info(f"Admin token: {ADMIN_TOKEN}") if isValid else logger.error("Admin token is invalid on startup.") 
+    # logger.info(f"Admin token: {ADMIN_TOKEN}")
 
 app = FastAPI(
     # title=project_details["title"],

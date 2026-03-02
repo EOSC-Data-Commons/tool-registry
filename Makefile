@@ -7,6 +7,7 @@ run: sync
 	uvicorn src.main:app --host 0.0.0.0 --port $(PORT) --reload
 
 install:
+	mkdir -p cache
 	uv sync --frozen --no-cache
 
 .PHONY: re-install install

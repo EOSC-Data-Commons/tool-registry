@@ -1,21 +1,17 @@
 import hmac
 import hashlib
 import base64
-import secrets
 import requests
 import logging
 import time
 import uuid
 import json
 import sqlite3
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 from jwt import PyJWKClient
-
 from tool_registry.config import load_service_config
-
 
 service_config = load_service_config()
 bearer_scheme = HTTPBearer(auto_error=False)

@@ -189,9 +189,9 @@ async def create_tool(request: Request,
 
     return {"message": "Tool created successfully", "tool_id": new_tool.id}
 
-@router.patch("/{tool_id}", description="Update an existing tool.", tags=["Tools"])
+@router.patch("/{indentifier}", description="Update an existing tool.", tags=["Tools"])
 async def update_tool(
-    tool_id: int,
+    identifier: int,
     request: Request,
     user_info=Depends(validate_token),
     db: AsyncSession = Depends(get_db),
@@ -207,7 +207,7 @@ async def update_tool(
 
     # Fetch tool
     result = await db.execute(
-        select(ToolGeneric).where(ToolGeneric.id == tool_id)
+        select(ToolGeneric).where(ToolGeneric.id == identifier)
     )
     tool = result.scalar_one_or_none()
 

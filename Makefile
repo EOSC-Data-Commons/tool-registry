@@ -49,13 +49,7 @@ git-tag:
 git-push-tag:
 	@git push origin v$(VERSION)
 
-# build: build-docker
-
-# build-docker:
-# 	docker build -t tool-registry:latest .
 #
-# run-docker:
-# 	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config tool-registry:latest
 
 
 # --- Release Docker Container ---
@@ -81,7 +75,7 @@ docker-login-check:
 docker-build:
 	@echo "Building $(IMAGE_NAME):$(VERSION)"
 	uv lock
-	docker build -t ghcr.io/$(IMAGE_NAME):$(VERSION) .
+	docker build --platform linux/amd64 -t ghcr.io/$(IMAGE_NAME):$(VERSION) .
 	docker tag ghcr.io/$(IMAGE_NAME):$(VERSION) ghcr.io/$(IMAGE_NAME):latest
 
 docker-push: docker-build
@@ -92,3 +86,5 @@ docker-push: docker-build
 docker-release: bump docker-build docker-push
 	@echo "Released $(IMAGE_NAME):$(VERSION)"
 
+docker-run:
+	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config ghcr.io/$(IMAGE_NAME):latest

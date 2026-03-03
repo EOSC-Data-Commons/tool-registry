@@ -20,7 +20,9 @@ clean:
 	rm -rf ./.venv
 	rm uv.lock 2> /dev/null || true
 	rm -rf ./cache
-	# rm -rf .venv/lib/python3.12/site-packages/toolmeta_models/
+
+token:
+	uv run src/get_admin_token.py
 
 sync:
 	uv sync 

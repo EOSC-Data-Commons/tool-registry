@@ -1,13 +1,14 @@
 import logging
 from pydantic import BaseModel
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import any_
 from datetime import datetime
 from toolmeta_models import ToolGeneric
 from tool_registry.db import get_db
+from tool_registry.security import validate_token
 
 
 logger = logging.getLogger(__name__)
@@ -137,3 +138,38 @@ async def get_tools_by_identifier(
         raise HTTPException(status_code=404, detail="Tool not found")
     logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
     return ToolOutExt.from_orm(tool)
+
+@router.post("/", description="Create a new tool in the registry.", tags=["Tools"])
+async def create_tool(request: Request, 
+                      user_info=Depends(validate_token),  
+                      db: AsyncSession = Depends(get_db)):
+    content_type = request.headers.get("Content-Type", "")
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="Unsupported Media Type. Expected application/json.")
+    tool_data = await request.json()
+    # Validate required fields
+    required_fields = ["uri", "name", "version", "description", "archetype", "input_file_formats"]
+    missing_fields = [field for field in required_fields if field not in tool_data]
+    if missing_fields:
+        raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing_fields)}")
+    # Create tool in the database
+    new_tool = ToolGeneric(
+        uri=tool_data["uri"],
+        location=tool_data.get("location", ""),
+        name=tool_data["name"],
+        version=tool_data["version"],
+        description=tool_data["description"],
+        archetype=tool_data["archetype"],
+        input_file_formats=tool_data["input_file_formats"],
+        output_file_formats=tool_data.get("output_file_formats", []),
+        raw_metadata=tool_data.get("raw_metadata", {}),
+        metadata_schema=tool_data.get("metadata_schema", {}),
+        metadata_version=tool_data.get("metadata_version", ""),
+        metadata_type=tool_data.get("metadata_type", ""),
+        created_by=user_info["user"]
+    )
+    db.add(new_tool)
+    await db.commit()
+    await db.refresh(new_tool)
+
+    return {"message": "Tool created successfully", "tool_id": new_tool.id}

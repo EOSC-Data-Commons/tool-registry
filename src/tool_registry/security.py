@@ -128,7 +128,7 @@ def validate_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_sc
     admin_user = validate_admin_token(credentials.credentials, service_config.admin_auth_key)
     if admin_user:
         logger.info("Admin token validated successfully")
-        return {"auth": admin_user['user'], "details": "Admin token valid"}
+        return {"user": admin_user['user'], "token_type": "admin"}
     return validate_egi_token(credentials)
 
 
@@ -143,8 +143,11 @@ def validate_egi_token(
         # decode and validate
         payload = jwt.decode(token, signing_key, algorithms=["RS256"], issuer=ISSUER)
         user_info = fetch_user_info(token)
-        payload["user_info"] = user_info  # attach user info to payload
-        return payload  # optionally return payload for use in route
+        # payload["user_info"] = user_info  # attach user info to payload
+        return {
+            "user": user_info['sub'],
+            "token_type": "egi",
+        }  # optionally return payload for use in route
 
     except jwt.ExpiredSignatureError as e:
         logger.debug(f"Token expired: {str(e)}")

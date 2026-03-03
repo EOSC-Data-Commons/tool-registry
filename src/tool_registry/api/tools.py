@@ -139,6 +139,19 @@ async def get_tools_by_identifier(
     logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
     return ToolOutExt.from_orm(tool)
 
+@router.delete("/{identifier}", description="Delete a tool by id.", tags=["Tools"])
+async def delete_tool(identifier: int = Path(..., description="The internal id of the tool to delete.", example="5"),
+                      user_info=Depends(validate_token),  
+                      db: AsyncSession = Depends(get_db)):
+    tool = await get_tool_by_id(identifier, db)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if tool.created_by != user_info["user"]:
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this tool")
+    await db.delete(tool)
+    await db.commit()
+    return {"message": "Tool deleted successfully"}
+
 @router.post("/", description="Create a new tool in the registry.", tags=["Tools"])
 async def create_tool(request: Request, 
                       user_info=Depends(validate_token),  

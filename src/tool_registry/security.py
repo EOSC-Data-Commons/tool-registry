@@ -125,6 +125,10 @@ def fetch_user_info(token: str) -> dict:
 
 
 def validate_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header missing"
+        )
     admin_user = validate_admin_token(credentials.credentials, service_config.admin_auth_key)
     if admin_user:
         logger.info("Admin token validated successfully")

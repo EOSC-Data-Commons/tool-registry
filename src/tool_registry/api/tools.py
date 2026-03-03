@@ -1,13 +1,14 @@
 import logging
 from pydantic import BaseModel
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import any_
 from datetime import datetime
 from toolmeta_models import ToolGeneric
 from tool_registry.db import get_db
+from tool_registry.security import validate_token
 
 
 logger = logging.getLogger(__name__)
@@ -137,3 +138,110 @@ async def get_tools_by_identifier(
         raise HTTPException(status_code=404, detail="Tool not found")
     logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
     return ToolOutExt.from_orm(tool)
+
+@router.delete("/{identifier}", description="Delete a tool by id.", tags=["Tools"])
+async def delete_tool(identifier: int = Path(..., description="The internal id of the tool to delete.", example="5"),
+                      user_info=Depends(validate_token),  
+                      db: AsyncSession = Depends(get_db)):
+    tool = await get_tool_by_id(identifier, db)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if tool.created_by != user_info["user"]:
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this tool")
+    await db.delete(tool)
+    await db.commit()
+    return {"message": "Tool deleted successfully"}
+
+@router.post("/", description="Create a new tool in the registry.", tags=["Tools"])
+async def create_tool(request: Request, 
+                      user_info=Depends(validate_token),  
+                      db: AsyncSession = Depends(get_db)):
+    content_type = request.headers.get("Content-Type", "")
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="Unsupported Media Type. Expected application/json.")
+    tool_data = await request.json()
+    # Validate required fields
+    required_fields = ["uri", "name", "version", "description", "archetype", "input_file_formats"]
+    missing_fields = [field for field in required_fields if field not in tool_data]
+    if missing_fields:
+        raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing_fields)}")
+    # Create tool in the database
+    input_formats = [fmt.lstrip(".") for fmt in tool_data["input_file_formats"]]
+    output_formats = [fmt.lstrip(".") for fmt in tool_data.get("output_file_formats", [])]
+    new_tool = ToolGeneric(
+        uri=tool_data["uri"],
+        location=tool_data.get("location", ""),
+        name=tool_data["name"],
+        version=tool_data["version"],
+        description=tool_data["description"],
+        archetype=tool_data["archetype"],
+        input_file_formats=input_formats,
+        output_file_formats=output_formats,
+        raw_metadata=tool_data.get("raw_metadata", {}),
+        metadata_schema=tool_data.get("metadata_schema", {}),
+        metadata_version=tool_data.get("metadata_version", ""),
+        metadata_type=tool_data.get("metadata_type", ""),
+        created_by=user_info["user"]
+    )
+    db.add(new_tool)
+    await db.commit()
+    await db.refresh(new_tool)
+
+    return {"message": "Tool created successfully", "tool_id": new_tool.id}
+
+@router.patch("/{indentifier}", description="Update an existing tool.", tags=["Tools"])
+async def update_tool(
+    identifier: int,
+    request: Request,
+    user_info=Depends(validate_token),
+    db: AsyncSession = Depends(get_db),
+):
+    content_type = request.headers.get("Content-Type", "")
+    if content_type != "application/json":
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported Media Type. Expected application/json.",
+        )
+
+    tool_data = await request.json()
+
+    # Fetch tool
+    result = await db.execute(
+        select(ToolGeneric).where(ToolGeneric.id == identifier)
+    )
+    tool = result.scalar_one_or_none()
+
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    # Ownership check
+    if tool.created_by != user_info["user"]:
+        raise HTTPException(status_code=403, detail="Not allowed to update this tool")
+
+    # Fields allowed to update
+    updatable_fields = {
+        "uri",
+        "location",
+        "name",
+        "version",
+        "description",
+        "archetype",
+        "input_file_formats",
+        "output_file_formats",
+        "raw_metadata",
+        "metadata_schema",
+        "metadata_version",
+        "metadata_type",
+    }
+
+    for field, value in tool_data.items():
+        if field in updatable_fields:
+            if field in {"input_file_formats", "output_file_formats"} and isinstance(value, list):
+                value = [fmt.lstrip(".").lower() for fmt in value if fmt]
+
+            setattr(tool, field, value)
+
+    await db.commit()
+    await db.refresh(tool)
+
+    return {"message": "Tool updated successfully", "tool_id": tool.id}

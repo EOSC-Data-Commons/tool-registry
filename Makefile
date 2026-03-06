@@ -92,4 +92,4 @@ docker-run:
 	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config ghcr.io/$(IMAGE_NAME):latest
 
 release: print-version git-tag git-push-tag docker-release
-	@echo "Released version $(VERSION) to GitHub and Docker Hub"
+	@echo "Released version $(VERSION) to GitHub

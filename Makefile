@@ -40,6 +40,8 @@ print-version:
 bump:
 	uv version --bump patch
 	uv lock
+	git commit -am "Bump version to v$(VERSION)"
+	git push
 
 git-tag:
 	@echo "Tagging version v$(VERSION)"

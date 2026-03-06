@@ -3,9 +3,9 @@ PORT ?= 8080
 HOST_PORT ?= 8080
 ORG_NAME := eosc-data-commons
 IMAGE_NAME := $(ORG_NAME)/tool-registry
-VERSION := $(shell grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)
+VERSION = $(shell grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)
 
-.PHONY: run sync force-sync install
+.PHONY: run sync force-sync install git-tag git-push-tag docker-login docker-check-login docker-build docker-push docker-release print-version bump
 run: sync
 	uvicorn src.main:app --host 0.0.0.0 --port $(PORT) --reload
 
@@ -51,14 +51,6 @@ git-tag:
 git-push-tag:
 	@git push origin v$(VERSION)
 
-#
-
-
-# --- Release Docker Container ---
-
-.PHONY: docker-build docker-push docker-release print-version
-
-
 docker-login:
 	@if [ -z "$$GITHUB_TOKEN" ]; then \
 		echo "ERROR: GITHUB_TOKEN not set"; \
@@ -71,8 +63,18 @@ docker-login:
 	@echo "Logging in to GHCR as $(GITHUB_USER)"
 	@echo $$GITHUB_TOKEN | docker login ghcr.io -u $(GITHUB_USER) --password-stdin
 
-docker-login-check:
-	@docker info > /dev/null 2>&1 || (echo "Docker not running"; exit 1)
+docker-check-login:
+	@if docker system info >/dev/null 2>&1; then \
+		if grep -q '"ghcr.io"' $$HOME/.docker/config.json 2>/dev/null; then \
+			echo "Logged in to ghcr.io"; \
+		else \
+			echo "Not logged in to ghcr.io"; \
+			exit 1; \
+		fi \
+	else \
+		echo "Docker daemon not running"; \
+		exit 1; \
+	fi
 
 docker-build:
 	@echo "Building $(IMAGE_NAME):$(VERSION)"
@@ -91,5 +93,5 @@ docker-release: docker-build docker-push
 docker-run:
 	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config ghcr.io/$(IMAGE_NAME):latest
 
-release: print-version git-tag git-push-tag docker-release
+release: print-version docker-login docker-check-login git-tag git-push-tag docker-release
 	@echo "Released version $(VERSION) to GitHub

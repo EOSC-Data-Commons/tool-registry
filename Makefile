@@ -85,8 +85,11 @@ docker-push: docker-build
 	docker push ghcr.io/$(IMAGE_NAME):$(VERSION)
 	docker push ghcr.io/$(IMAGE_NAME):latest
 
-docker-release: bump docker-build docker-push
+docker-release: docker-build docker-push
 	@echo "Released $(IMAGE_NAME):$(VERSION)"
 
 docker-run:
 	docker run -e PORT=$(PORT) -p $(HOST_PORT):$(PORT)  -v ./config:/app/config ghcr.io/$(IMAGE_NAME):latest
+
+release: print-version git-tag git-push-tag docker-release
+	@echo "Released version $(VERSION) to GitHub and Docker Hub"

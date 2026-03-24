@@ -4,11 +4,11 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy import any_
+from sqlalchemy import any_, func, exists, literal, or_
 from datetime import datetime
 from toolmeta_models import ToolGeneric
 from tool_registry.db import get_db
-from tool_registry.security import validate_token
+from tool_registry.security import validate_token, get_current_user
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,8 @@ class ToolOut(BaseModel):
     archetype: Optional[str]
     input_file_formats: Optional[list[str]]
     output_file_formats: Optional[list[str]]
+    input_file_descriptions: Optional[list[str]]
+    output_file_descriptions: Optional[list[str]]
 
     class Config:
         from_attributes = True
@@ -45,8 +47,10 @@ class ToolCreate(BaseModel):
     location: Optional[str] = ""
     description: str
     archetype: str
-    input_file_formats: List[str]
+    input_file_formats: Optional[List[str]] = []
     output_file_formats: Optional[List[str]] = []
+    input_file_descriptions: Optional[List[str]] = []
+    output_file_descriptions: Optional[List[str]] = []
     raw_metadata: Optional[dict] = {}
     metadata_schema: Optional[dict] = {}
     metadata_version: Optional[str] = ""
@@ -68,6 +72,8 @@ class ToolUpdate(BaseModel):
     archetype: Optional[str] = None
     input_file_formats: Optional[List[str]] = None
     output_file_formats: Optional[List[str]] = None
+    input_file_descriptions: Optional[List[str]] = None
+    output_file_descriptions: Optional[List[str]] = None
     raw_metadata: Optional[dict] = None
     metadata_schema: Optional[dict] = None
     metadata_version: Optional[str] = None
@@ -89,6 +95,7 @@ class ToolSearchParams(BaseModel):
     input_format: Optional[str] = None
     output_format: Optional[str] = None
     archetype: Optional[str] = None
+    user_info: Optional[dict] = None
 
 
 async def get_tool_by_id(
@@ -100,6 +107,14 @@ async def get_tool_by_id(
     tool = result.scalars().first()
     return tool
 
+async def get_tool_by_user(
+    user: str, db: AsyncSession
+) -> Optional[ToolGeneric]:
+    query = select(ToolGeneric).where(
+        ToolGeneric.created_by == user)
+    result = await db.execute(query)
+    tool = result.scalars().first()
+    return tool
 
 async def search_tools_in_db(
     search: ToolSearchParams, db: AsyncSession
@@ -115,9 +130,27 @@ async def search_tools_in_db(
         query = query.where(
             ToolGeneric.archetype == search.archetype
         )
-    if search.input_format:
+    if search.user_info:
+        logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
         query = query.where(
-            search.input_format == any_(ToolGeneric.input_file_formats)
+            ToolGeneric.created_by == search.user_info["user"]
+        )
+    if search.input_format:
+        pattern = f"%{search.input_format}%"
+
+        # LATERAL-style unnest
+        unnested = func.unnest(ToolGeneric.input_file_descriptions).alias("desc")
+
+        description_match = exists(
+            select(literal(1))
+            .select_from(unnested)
+            .where(unnested.column.ilike(pattern))
+        )
+
+        format_match = search.input_format == any_(ToolGeneric.input_file_formats)
+
+        query = query.where(
+            or_(format_match, description_match)
         )
     if search.output_format:
         query = query.where(
@@ -127,7 +160,6 @@ async def search_tools_in_db(
     result = await db.execute(query)
     tools = result.scalars().all()
     return tools
-
 
 @router.get(
     "/",
@@ -157,6 +189,7 @@ async def search_tools(
         example="galaxy_workflow",
     ),
     db: AsyncSession = Depends(get_db),
+    user_info=Depends(get_current_user)
 ):
     """
     Search for tools based on provided criteria.
@@ -166,6 +199,7 @@ async def search_tools(
         input_format=input_format,
         output_format=output_format,
         archetype=archetype,
+        user_info=user_info,
     )
     tools = await search_tools_in_db(search, db)
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
@@ -195,6 +229,7 @@ async def get_tools_by_identifier(
     logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
     return ToolOutExt.from_orm(tool)
 
+
 @router.delete("/{identifier}", description="Delete a tool by id.", tags=["Tools"])
 async def delete_tool(identifier: int = Path(..., description="The internal id of the tool to delete.", example="5"),
                       user_info=Depends(validate_token),  
@@ -222,6 +257,8 @@ async def create_tool(tool_data: ToolCreate,
         archetype=tool_data.archetype,
         input_file_formats=tool_data.input_file_formats,
         output_file_formats=tool_data.output_file_formats,
+        input_file_descriptions=tool_data.input_file_descriptions,
+        output_file_descriptions=tool_data.output_file_descriptions,
         raw_metadata=tool_data.raw_metadata,
         metadata_schema=tool_data.metadata_schema,
         metadata_version=tool_data.metadata_version,
@@ -242,7 +279,6 @@ async def update_tool(
     user_info=Depends(validate_token),
     db: AsyncSession = Depends(get_db),
 ):
-    print("HG")
     logger.debug(f"Received tool update request for ID {identifier} with data: {tool_data.model_dump()}")
     # Fetch tool
     result = await db.execute(

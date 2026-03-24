@@ -123,6 +123,32 @@ def fetch_user_info(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Failed to fetch user info"
         )
 
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    if not credentials:
+        return None
+    admin_user = validate_admin_token(credentials.credentials, service_config.admin_auth_key)
+    if admin_user:
+        logger.info("Admin token validated successfully")
+        return {"user": admin_user['user'], "token_type": "admin"}
+    else:
+        try:
+            token = credentials.credentials
+            # fetch signing key from JWKS based on 'kid' in token
+            signing_key = jwk_client.get_signing_key_from_jwt(token).key
+
+            # decode and validate
+            payload = jwt.decode(token, signing_key, algorithms=["RS256"], issuer=ISSUER)
+            user_info = fetch_user_info(token)
+            # payload["user_info"] = user_info  # attach user info to payload
+            return {
+                "user": user_info['sub'],
+                "token_type": "egi",
+            }  # optionally return payload for use in route
+
+        except Exception as e:
+            logger.debug(f"Token invalid: {str(e)}")
+            return None
+    return None
 
 def validate_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
     if not credentials:

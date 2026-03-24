@@ -1,6 +1,8 @@
 import logging
 from dynaconf import Dynaconf
 from dataclasses import dataclass
+import tomllib
+
 
 settings = Dynaconf(
     settings_files=["config/config.toml", "config/.secrets.toml"])
@@ -23,6 +25,16 @@ class ServiceConfig:
     api_prefix: str
     admin_auth_key: str
 
+
+def get_app_version() -> str:
+    try:
+        with open("pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+
+        return data["project"]["version"]
+    except Exception as e:
+        logging.error(f"Failed to read version from pyproject.toml: {e}")
+        return "unknown"
 
 def init_logging() -> None:
     log_level = settings.logging.log_level.upper()

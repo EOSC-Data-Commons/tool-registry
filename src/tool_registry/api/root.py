@@ -1,12 +1,14 @@
 import logging
 from fastapi import APIRouter, Depends
 from starlette.responses import JSONResponse
+from tool_registry.config import get_app_version
 from tool_registry.security import validate_token
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+VERSION = get_app_version()
 
 @router.get("/favicon.ico", include_in_schema=False)
 async def favicon():
@@ -33,7 +35,9 @@ async def root():
 
 @router.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy",
+            "version": VERSION,
+            }
 
 
 @router.get("/auth", tags=["Authentication"])

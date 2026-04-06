@@ -21,17 +21,23 @@ class ToolOut(BaseModel):
     location: str
     name: str
     description: Optional[str]
+    license: Optional[str]
+    keywords: Optional[list[str]]
+    tags: Optional[list[str]]
     version: Optional[str]
-    archetype: Optional[str]
+    types: Optional[list[str]]
     input_file_formats: Optional[list[str]]
     output_file_formats: Optional[list[str]]
     input_file_descriptions: Optional[list[str]]
     output_file_descriptions: Optional[list[str]]
+    input_slots: Optional[list[dict]]
+    output_slots: Optional[list[dict]]
 
     class Config:
         from_attributes = True
 
 class ToolOutExt(ToolOut):
+    raw_definition: Optional[dict]
     raw_metadata: Optional[dict]
     metadata_schema: Optional[dict]
     metadata_version: Optional[str]
@@ -45,12 +51,18 @@ class ToolCreate(BaseModel):
     name: str
     version: str
     location: Optional[str] = ""
+    license: Optional[str] = ""
     description: str
-    archetype: str
+    keywords: Optional[list[str]] = []
+    tags: Optional[list[str]] = []
+    types: Optional[list[str]]
     input_file_formats: Optional[List[str]] = []
     output_file_formats: Optional[List[str]] = []
     input_file_descriptions: Optional[List[str]] = []
     output_file_descriptions: Optional[List[str]] = []
+    input_slots: Optional[List[dict]] = []
+    output_slots: Optional[List[dict]] = []
+    raw_definition: Optional[dict] = {}
     raw_metadata: Optional[dict] = {}
     metadata_schema: Optional[dict] = {}
     metadata_version: Optional[str] = ""
@@ -69,11 +81,16 @@ class ToolUpdate(BaseModel):
     name: Optional[str] = None
     version: Optional[str] = None
     description: Optional[str] = None
-    archetype: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
+    types: Optional[list[str]]
     input_file_formats: Optional[List[str]] = None
     output_file_formats: Optional[List[str]] = None
     input_file_descriptions: Optional[List[str]] = None
     output_file_descriptions: Optional[List[str]] = None
+    input_slots: Optional[List[dict]] = None
+    output_slots: Optional[List[dict]] = None
+    raw_definition: Optional[dict] = None
     raw_metadata: Optional[dict] = None
     metadata_schema: Optional[dict] = None
     metadata_version: Optional[str] = None
@@ -127,8 +144,11 @@ async def search_tools_in_db(
             ToolGeneric.name.ilike(f"%{search.name}%"))
     if search.archetype:
         logger.debug(f"Filtering tools by archetype: {search.archetype}")
+        # query = query.where(
+        #     ToolGeneric.archetype == search.archetype
+        # )
         query = query.where(
-            ToolGeneric.archetype == search.archetype
+            search.archetype == any_(ToolGeneric.types)
         )
     if search.user_info:
         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")

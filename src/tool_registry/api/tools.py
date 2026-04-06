@@ -226,9 +226,32 @@ async def search_tools(
     return [ToolOut.from_orm(tool) for tool in tools]
 
 @router.get(
+    "/{identifier}/raw_definition",
+    description="Retrieve the raw definition of a tool by id",
+    tags=["Tools"],
+)
+async def get_tool_raw_definition(
+    identifier: int = Path(
+        ...,
+        description="The internal id of the tool to retrieve.",
+        example="5",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    logger.debug(f"Received request to retrieve tool with ID: {identifier}")
+    """
+    Retrieve a single tool by its ID.
+    """
+    tool = await get_tool_by_id(identifier, db)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    logger.debug(f"Retrieved tool: {tool.name} (ID: {tool.id})")
+    return tool.raw_definition or {}
+
+@router.get(
     "/{identifier}",
     response_model=ToolOutExt,
-    description="Retrieve a single tool by uuid.",
+    description="Retrieve a single tool by id.",
     tags=["Tools"],
 )
 async def get_tools_by_identifier(
@@ -246,7 +269,7 @@ async def get_tools_by_identifier(
     tool = await get_tool_by_id(identifier, db)
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    logger.debug(f"Retrieved tool: {tool.name} (UUID: {tool.id})")
+    logger.debug(f"Retrieved tool: {tool.name} (ID: {tool.id})")
     return ToolOutExt.from_orm(tool)
 
 

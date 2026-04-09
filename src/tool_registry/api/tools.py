@@ -2,6 +2,7 @@ import logging
 from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import any_, func, exists, literal, or_
@@ -231,6 +232,7 @@ async def search_tools(
     tags=["Tools"],
 )
 async def get_tool_raw_definition(
+    request: Request,
     identifier: int = Path(
         ...,
         description="The internal id of the tool to retrieve.",
@@ -245,8 +247,21 @@ async def get_tool_raw_definition(
     tool = await get_tool_by_id(identifier, db)
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    logger.debug(f"Retrieved tool: {tool.name} (ID: {tool.id})")
-    return tool.raw_definition or {}
+
+    raw = tool.raw_definition or {}
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept or "*/*" in accept or not accept:
+        return JSONResponse(content=raw)
+
+    if "text/plain" in accept:
+        # ensure string output
+        if isinstance(raw, str):
+            return PlainTextResponse(content=raw)
+        else:
+            # fallback: serialise non-string to text
+            return PlainTextResponse(content=str(raw))
+
+    raise HTTPException(status_code=406, detail="Not Acceptable")
 
 @router.get(
     "/{identifier}",

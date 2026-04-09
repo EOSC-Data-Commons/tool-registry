@@ -3,9 +3,16 @@ from dynaconf import Dynaconf
 from dataclasses import dataclass
 import tomllib
 
-
 settings = Dynaconf(
+    envvar_prefix="TOOL_REGISTRY",
     settings_files=["config/config.toml", "config/.secrets.toml"])
+
+# Environment variable overrides:
+# export TOOL_REGISTRY_DATABASE__HOST=localhost
+# export TOOL_REGISTRY_DATABASE__PORT=5432
+# export TOOL_REGISTRY_DATABASE__NAME=admin
+# export TOOL_REGISTRY_DATABASE__USER=harvester
+# export TOOL_REGISTRY_DATABASE__PASSWORD=yoursecretsecret
 
 
 @dataclass(frozen=True)

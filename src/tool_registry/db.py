@@ -4,7 +4,7 @@ from tool_registry.config import load_db_config
 
 db = load_db_config()
 engine = create_async_engine(
-    f"postgresql+psycopg://{db.user}:{db.password}@{db.host}/{db.name}", echo=False
+    f"postgresql+psycopg://{db.user}:{db.password}@{db.host}:{db.port}/{db.name}", echo=False
 )
 
 AsyncSessionLocal = sessionmaker(

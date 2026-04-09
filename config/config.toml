@@ -1,14 +1,14 @@
 [logging]
 log_file = "@format {env[BASE_DIR]}/logs/tool-registry.log"
-log_level = "DEBUG"
+log_level = "INFO"
 use_detailed_format = false
 
 [database]
 host = "localhost"
 port = 5432
-name = "admin"
+name = "toolsdb"
 user = "harvester"
-password = ""
+password = "yourpassword"
 
 [service]
 name = "Tool Registry"

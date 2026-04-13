@@ -1,11 +1,14 @@
 import logging
-from pydantic import BaseModel, field_validator
-from typing import Optional, List
+import mimedb
+from pydantic import BaseModel, field_validator, Field
+from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import any_, func, exists, literal, or_
+from sqlalchemy import cast
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, TEXT
 from datetime import datetime
 from toolmeta_models import ToolGeneric
 from tool_registry.db import get_db
@@ -115,6 +118,20 @@ class ToolSearchParams(BaseModel):
     archetype: Optional[str] = None
     user_info: Optional[dict] = None
 
+class FileInput(BaseModel):
+    name: str
+    mime_type: str
+
+
+class MatchOptions(BaseModel):
+    top_k: Optional[int] = 10
+    threshold: Optional[float] = 0.0
+
+
+class ToolMatchRequest(BaseModel):
+    type: Literal["file"]  # extensible later
+    inputs: List[FileInput] = Field(..., min_items=1)
+    options: Optional[MatchOptions] = None
 
 async def get_tool_by_id(
     id: int, db: AsyncSession
@@ -362,3 +379,57 @@ async def update_tool(
     await db.refresh(tool)
 
     return {"message": "Tool updated successfully", "tool_id": tool.id}
+
+# For matching tools based on complex criteria (e.g. multiple file inputs), we use a POST endpoint to allow for a more complex request body.
+# Post body:
+#{
+#   "type": "file",
+#   "inputs": [
+#     { "name": "foo.json", "mime_type": "application/json" },
+#     { "name": "bar.csv", "mime_type": "text/csv" }
+#
+#   ]
+# }
+@router.post(
+    "/match",
+    response_model=list[ToolOut],
+    description="Match tools given complex input criteria.",
+    tags=["Tools"],
+)
+async def match_tools_post(
+    match: ToolMatchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    logger.debug(f"Received tool match request with body: {match}")
+    if match.type != "file":
+        raise HTTPException(status_code=400, detail="Unsupported match type")
+    extensions = set()
+    for file in match.inputs:
+        mime_type = file.mime_type
+        if not mime_type:
+            continue
+        extensions.update(mimedb.get_extensions(mime_type))
+
+    query = select(ToolGeneric)
+
+    slot = func.jsonb_array_elements(
+        ToolGeneric.input_slots
+    ).table_valued("value").alias("slot")
+
+    slot_value = cast(slot.c.value, JSONB)
+    query = query.where(
+        exists(
+            select(1)
+            .select_from(slot)
+            .where(
+                # slot_value.op("->>")("type") == "file",
+                slot_value.op("->")("file_formats").op("?|")(
+                    cast(list(extensions), ARRAY(TEXT))
+                )
+            )
+        )
+    )
+    logger.debug(f"Executing query: { query.compile(compile_kwargs={"literal_binds": True}) }")
+    result = await db.execute(query)
+    tools = result.scalars().all()
+    return [ToolOut.from_orm(tool) for tool in tools]

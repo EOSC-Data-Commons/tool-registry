@@ -1,6 +1,6 @@
 [project]
 name = "tool-registry"
-version = "0.2.8"
+version = "0.2.9"
 description = "Tools Registry (Catalogue of Tools): a reference implementation and specification to publish, curate, and expose value‑adding services, workflows, and tools in a managed registry."
 readme = "README.md"
 title = "Tool Registry API Service"

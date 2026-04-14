@@ -86,8 +86,9 @@ class ToolUpdate(BaseModel):
     version: Optional[str] = None
     description: Optional[str] = None
     keywords: Optional[list[str]] = None
+    license: Optional[str] = None
     tags: Optional[list[str]] = None
-    types: Optional[list[str]]
+    types: Optional[list[str]] = None
     input_file_formats: Optional[List[str]] = None
     output_file_formats: Optional[List[str]] = None
     input_file_descriptions: Optional[List[str]] = None
@@ -322,6 +323,19 @@ async def create_tool(tool_data: ToolCreate,
                       user_info=Depends(validate_token),  
                       db: AsyncSession = Depends(get_db)):
     logger.debug(f"Received tool creation request with data: {tool_data.model_dump()}")
+    result = await db.execute(
+        select(ToolGeneric).where(ToolGeneric.uri == tool_data.uri)
+    )
+    existing_tool = result.scalar_one_or_none()
+
+    if existing_tool:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Tool with uri '{tool_data.uri}' already exists",
+                "existing_tool_id": existing_tool.id,
+            }
+        )
     new_tool = ToolGeneric(
         uri=tool_data.uri,
         location=tool_data.location,
@@ -369,7 +383,7 @@ async def update_tool(
 
 
     # Only update provided fields
-    update_data = tool_data.model_dump(exclude_unset=True)
+    update_data = tool_data.model_dump(exclude_unset=True, exclude_none=True)
 
     for field, value in update_data.items():
         setattr(tool, field, value)

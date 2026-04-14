@@ -124,8 +124,7 @@ class FileInput(BaseModel):
 
 
 class MatchOptions(BaseModel):
-    top_k: Optional[int] = 10
-    threshold: Optional[float] = 0.0
+    operator: Optional[Literal["or", "and"]] = "or"
 
 
 class ToolMatchRequest(BaseModel):
@@ -404,32 +403,63 @@ async def match_tools_post(
     if match.type != "file":
         raise HTTPException(status_code=400, detail="Unsupported match type")
     extensions = set()
+    if match.options and match.options.operator:
+        operator = match.options.operator.lower()
+
     for file in match.inputs:
         mime_type = file.mime_type
-        if not mime_type:
-            continue
-        extensions.update(mimedb.get_extensions(mime_type))
+        file_extensions = mimedb.get_extensions(mime_type)
+        if not file_extensions:
+            file_extension = file.name.split(".")[-1].lower() if "." in file.name else None
+            if file_extension:
+                extensions.add(file_extension)
+        else:
+            extensions.update(file_extensions)
+
+    logger.debug(f"Extracted file extensions for matching: {extensions} with operator: {operator}")
 
     query = select(ToolGeneric)
+    if operator == "or":
+        # For OR, we want to match any tool that accepts at least one of the formats
+        slot = func.jsonb_array_elements(
+            ToolGeneric.input_slots
+        ).table_valued("value").alias("slot")
 
-    slot = func.jsonb_array_elements(
-        ToolGeneric.input_slots
-    ).table_valued("value").alias("slot")
-
-    slot_value = cast(slot.c.value, JSONB)
-    query = query.where(
-        exists(
-            select(1)
-            .select_from(slot)
-            .where(
-                # slot_value.op("->>")("type") == "file",
-                slot_value.op("->")("file_formats").op("?|")(
-                    cast(list(extensions), ARRAY(TEXT))
+        slot_value = cast(slot.c.value, JSONB)
+        query = query.where(
+            exists(
+                select(1)
+                .select_from(slot)
+                .where(
+                    # slot_value.op("->>")("type") == "file",
+                    slot_value.op("->")("file_formats").op("?|")(
+                        cast(list(extensions), ARRAY(TEXT))
+                    )
                 )
             )
         )
-    )
-    logger.debug(f"Executing query: { query.compile(compile_kwargs={"literal_binds": True}) }")
+    if operator == "and":
+        for ext in extensions:
+            slot = func.jsonb_array_elements(
+                ToolGeneric.input_slots
+            ).table_valued("value").alias(f"slot_{ext}")
+
+            slot_value = cast(slot.c.value, JSONB)
+
+            query = query.where(
+                exists(
+                    select(1)
+                    .select_from(slot)
+                    .where(
+                        # optional type filter
+                        # slot_value.op("->>")("type") == "data_collection_input",
+
+                        slot_value.op("->")("file_formats").op("?")(ext)
+                    )
+                )
+            )
+
+    logger.debug(f"Executing query: { query.compile(compile_kwargs={'literal_binds': True}) }")
     result = await db.execute(query)
     tools = result.scalars().all()
     return [ToolOut.from_orm(tool) for tool in tools]

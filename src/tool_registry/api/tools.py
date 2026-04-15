@@ -36,6 +36,7 @@ class ToolOut(BaseModel):
     output_file_descriptions: Optional[list[str]]
     input_slots: Optional[list[dict]]
     output_slots: Optional[list[dict]]
+    created_by: str
 
     class Config:
         from_attributes = True
@@ -48,7 +49,7 @@ class ToolOutExt(ToolOut):
     metadata_type: Optional[str]
     created_at: datetime
     updated_at: Optional[datetime]
-    created_by: str
+    # created_by: str
 
 class ToolCreate(BaseModel):
     uri: str

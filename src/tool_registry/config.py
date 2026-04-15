@@ -26,11 +26,12 @@ class DatabaseConfig:
 
 @dataclass(frozen=True)
 class ServiceConfig:
-    name: str
-    listen_port: int
-    bind_address: str
-    api_prefix: str
     admin_auth_key: str
+    name: str = "Tool Registry Service"
+    listen_port: int = 8080
+    bind_address: str = "0.0.0.0"
+    api_prefix: str = "/api/v1"
+    egi_env: str = "production"
 
 
 def get_app_version() -> str:
@@ -61,6 +62,7 @@ def load_service_config() -> ServiceConfig:
         bind_address=settings.service.bind_address,
         api_prefix=settings.service.api_prefix,
         admin_auth_key=settings.service.admin_auth_key,
+        egi_env=settings.service.egi_env,
     )
 
 

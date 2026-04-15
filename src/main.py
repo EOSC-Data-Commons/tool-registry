@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
 VERSION = get_app_version()
-logger.info(f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()}")
+logger.info(f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()} and service configuration: {service_config}")
 security.init_nonce_db()
 ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
 logger.info(f"Admin token: {ADMIN_TOKEN}")

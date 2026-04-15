@@ -16,13 +16,25 @@ from tool_registry.config import load_service_config
 service_config = load_service_config()
 bearer_scheme = HTTPBearer(auto_error=False)
 
-JWKS_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
-USERINFO_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
-ISSUER = "https://aai-dev.egi.eu/auth/realms/egi"
+logger = logging.getLogger(__name__)
+
+if service_config.egi_env == "production":
+    logger.info("Using production EGI AAI endpoints")
+    JWKS_URL = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
+    USERINFO_URL = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
+    ISSUER = "https://aai.egi.eu/auth/realms/egi"
+    TOKEN_PORTAL = "https://aai.egi.eu/token/"
+else:
+    logger.info("Using development EGI AAI endpoints")
+    JWKS_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
+    USERINFO_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
+    ISSUER = "https://aai-dev.egi.eu/auth/realms/egi"
+    TOKEN_PORTAL = "https://aai-dev.egi.eu/token/"
+
+
 ALLOWED_SKEW = 60 
 NONCE_DB = "cache/nonces.db"# seconds
 
-logger = logging.getLogger(__name__)
 
 def init_nonce_db(path=NONCE_DB):
     conn = sqlite3.connect(path)
@@ -141,7 +153,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
             user_info = fetch_user_info(token)
             # payload["user_info"] = user_info  # attach user info to payload
             return {
-                "user": user_info['sub'],
+                "user": user_info['voperson_id'],
                 "token_type": "egi",
             }  # optionally return payload for use in route
 
@@ -175,23 +187,23 @@ def validate_egi_token(
         user_info = fetch_user_info(token)
         # payload["user_info"] = user_info  # attach user info to payload
         return {
-            "user": user_info['sub'],
+            "user": user_info['voperson_id'],
             "token_type": "egi",
         }  # optionally return payload for use in route
 
     except jwt.ExpiredSignatureError as e:
         logger.debug(f"Token expired: {str(e)}")
         raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired; get a new one from EGI AAI (https://aai.egi.eu/token/)"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Token expired; get a new one from EGI AAI ({TOKEN_PORTAL})"
         )
     except jwt.InvalidTokenError as e:
         logger.debug(f"Token validation error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token; get a new one from EGI AAI (https://aai.egi.eu/token/)"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token; get a new one from EGI AAI ({TOKEN_PORTAL})"
         )
     except Exception as e:
         logger.debug(f"Token validation error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token; get a new one from EGI AAI (https://aai.egi.eu/token/)"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token; get a new one from EGI AAI ({TOKEN_PORTAL})"
         )
 

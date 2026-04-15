@@ -40,7 +40,7 @@ print-version:
 bump:
 	uv version --bump patch
 	uv lock
-	git commit -am "Bump version to v$(VERSION)"
+	git commit -am "Bump version to v"$$(grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)
 	git push
 
 git-tag:
@@ -81,6 +81,10 @@ docker-build:
 	uv lock
 	docker build --platform linux/amd64 -t ghcr.io/$(IMAGE_NAME):$(VERSION) .
 	docker tag ghcr.io/$(IMAGE_NAME):$(VERSION) ghcr.io/$(IMAGE_NAME):latest
+
+docker-build-dev:
+	@echo "Building $(IMAGE_NAME):$(VERSION)-dev"
+	docker build --platform linux/amd64 -t ghcr.io/$(IMAGE_NAME):$(VERSION)-dev .
 
 docker-push: docker-build
 	@echo "Pushing $(IMAGE_NAME):$(VERSION)"

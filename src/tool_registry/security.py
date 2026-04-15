@@ -16,9 +16,9 @@ from tool_registry.config import load_service_config
 service_config = load_service_config()
 bearer_scheme = HTTPBearer(auto_error=False)
 
-JWKS_URL = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
-USERINFO_URL = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
-ISSUER = "https://aai.egi.eu/auth/realms/egi"
+JWKS_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
+USERINFO_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
+ISSUER = "https://aai-dev.egi.eu/auth/realms/egi"
 ALLOWED_SKEW = 60 
 NONCE_DB = "cache/nonces.db"# seconds
 

@@ -1,7 +1,7 @@
 import logging
 
 from tool_registry.api import root, tools
-from tool_registry.config import load_service_config, init_logging, get_app_version
+from tool_registry.config import load_service_config, init_logging, get_app_version, load_db_config
 import tool_registry.security as security
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
 VERSION = get_app_version()
-logger.info(f"Starting Tool Registry Service - Version: {VERSION}")
+logger.info(f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()}")
 security.init_nonce_db()
 ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
 logger.info(f"Admin token: {ADMIN_TOKEN}")

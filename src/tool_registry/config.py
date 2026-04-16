@@ -13,6 +13,7 @@ settings = Dynaconf(
 # export TOOL_REGISTRY_DATABASE__NAME=admin
 # export TOOL_REGISTRY_DATABASE__USER=harvester
 # export TOOL_REGISTRY_DATABASE__PASSWORD=yoursecretsecret
+# export TOOL_REGISTRY_SERVICE__EGI_ENV=development
 
 
 @dataclass(frozen=True)

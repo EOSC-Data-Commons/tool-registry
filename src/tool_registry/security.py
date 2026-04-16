@@ -195,6 +195,7 @@ def validate_egi_token(
         return {
             "user": user_info['voperson_id'],
             "token_type": "egi",
+            "env": service_config.egi_env,
         }  # optionally return payload for use in route
 
     except jwt.ExpiredSignatureError as e:

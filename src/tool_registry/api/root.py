@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends
 from starlette.responses import JSONResponse
 from tool_registry.config import get_app_version
-from tool_registry.security import validate_token
+from tool_registry.security import validate_token, TOKEN_PORTAL
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,13 @@ async def health_check():
             "version": VERSION,
             }
 
+
+@router.get("/egi-token-portal", tags=["Authentication"])
+async def egi_token_portal():
+    return {
+        "message": "To obtain an EGI AAI token, please visit the EGI AAI Token Portal",
+        "token_portal_url": TOKEN_PORTAL,
+    }
 
 @router.get("/auth", tags=["Authentication"])
 async def auth_check(

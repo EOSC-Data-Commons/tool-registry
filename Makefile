@@ -40,7 +40,8 @@ print-version:
 bump:
 	uv version --bump patch
 	uv lock
-	git commit -am "Bump version to v"$$(grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)
+	V=$$(grep '^version' pyproject.toml | head -1 | cut -d '"' -f2); \
+	git commit -am "Bump version to v$$V"
 	git push
 
 git-tag:

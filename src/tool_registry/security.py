@@ -24,12 +24,18 @@ if service_config.egi_env == "production":
     USERINFO_URL = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
     ISSUER = "https://aai.egi.eu/auth/realms/egi"
     TOKEN_PORTAL = "https://aai.egi.eu/token/"
-else:
+if service_config.egi_env == "development":
     logger.info("Using development EGI AAI endpoints")
     JWKS_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
     USERINFO_URL = "https://aai-dev.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
     ISSUER = "https://aai-dev.egi.eu/auth/realms/egi"
     TOKEN_PORTAL = "https://aai-dev.egi.eu/token/"
+if service_config.egi_env == "demo":
+    logger.info("Using demo EGI AAI endpoints")
+    JWKS_URL = "https://aai-demo.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
+    USERINFO_URL = "https://aai-demo.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
+    ISSUER = "https://aai-demo.egi.eu/auth/realms/egi"
+    TOKEN_PORTAL = "https://aai-demo.egi.eu/token/"
 
 
 ALLOWED_SKEW = 60 
@@ -189,6 +195,7 @@ def validate_egi_token(
         return {
             "user": user_info['voperson_id'],
             "token_type": "egi",
+            "env": service_config.egi_env,
         }  # optionally return payload for use in route
 
     except jwt.ExpiredSignatureError as e:

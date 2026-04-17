@@ -31,7 +31,7 @@ if service_config.egi_env == "development":
     ISSUER = "https://aai-dev.egi.eu/auth/realms/egi"
     TOKEN_PORTAL = "https://aai-dev.egi.eu/token/"
 if service_config.egi_env == "demo":
-    logger.info("Using development EGI AAI endpoints")
+    logger.info("Using demo EGI AAI endpoints")
     JWKS_URL = "https://aai-demo.egi.eu/auth/realms/egi/protocol/openid-connect/certs"
     USERINFO_URL = "https://aai-demo.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo"
     ISSUER = "https://aai-demo.egi.eu/auth/realms/egi"

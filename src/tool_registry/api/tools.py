@@ -117,7 +117,7 @@ class ToolSearchParams(BaseModel):
     name: Optional[str] = None
     input_format: Optional[str] = None
     output_format: Optional[str] = None
-    archetype: Optional[str] = None
+    type: Optional[str] = None
     user_info: Optional[dict] = None
 
 class FileInput(BaseModel):
@@ -161,13 +161,10 @@ async def search_tools_in_db(
         logger.debug(f"Searching for tools with name like: {search.name}")
         query = query.where(
             ToolGeneric.name.ilike(f"%{search.name}%"))
-    if search.archetype:
-        logger.debug(f"Filtering tools by archetype: {search.archetype}")
-        # query = query.where(
-        #     ToolGeneric.archetype == search.archetype
-        # )
+    if search.type:
+        logger.debug(f"Filtering tools by type: {search.type}")
         query = query.where(
-            search.archetype == any_(ToolGeneric.types)
+            search.type.lower() == any_(ToolGeneric.types)
         )
     if search.user_info:
         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
@@ -222,9 +219,9 @@ async def search_tools(
         description="Filter tools by output format.",
         example="cram",
     ),
-    archetype: Optional[str] = Query(
+    type: Optional[str] = Query(
         None,
-        description="Filter tools by archetype.",
+        description="Filter tools by type.",
         example="galaxy_workflow",
     ),
     db: AsyncSession = Depends(get_db),
@@ -237,7 +234,7 @@ async def search_tools(
         name=name,
         input_format=input_format,
         output_format=output_format,
-        archetype=archetype,
+        type=type,
         user_info=user_info,
     )
     tools = await search_tools_in_db(search, db)

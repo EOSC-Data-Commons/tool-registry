@@ -118,6 +118,8 @@ class ToolSearchParams(BaseModel):
     input_format: Optional[str] = None
     output_format: Optional[str] = None
     type: Optional[str] = None
+    tag: Optional[str] = None
+    keyword: Optional[str] = None
     user_info: Optional[dict] = None
 
 class FileInput(BaseModel):
@@ -164,7 +166,17 @@ async def search_tools_in_db(
     if search.type:
         logger.debug(f"Filtering tools by type: {search.type}")
         query = query.where(
-            search.type.lower() == any_(ToolGeneric.types)
+            literal(search.type).ilike(any_(ToolGeneric.types))
+        )
+    if search.tag:
+        logger.debug(f"Filtering tools by tag: {search.tag}")
+        query = query.where(
+            literal(search.tag).ilike(any_(ToolGeneric.tags))
+        )
+    if search.keyword:
+        logger.debug(f"Filtering tools by keyword: {search.keyword}")
+        query = query.where(
+            literal(search.keyword).ilike(any_(ToolGeneric.keywords))
         )
     if search.user_info:
         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
@@ -224,6 +236,16 @@ async def search_tools(
         description="Filter tools by type.",
         example="galaxy_workflow",
     ),
+    tag: Optional[str] = Query(
+        None,
+        description="Filter tools by tag.",
+        example="covid-19",
+    ),
+    keyword: Optional[str] = Query(
+        None,
+        description="Filter tools by keyword.",
+        example="covid-19",
+    ),
     db: AsyncSession = Depends(get_db),
     user_info=Depends(get_current_user)
 ):
@@ -235,6 +257,8 @@ async def search_tools(
         input_format=input_format,
         output_format=output_format,
         type=type,
+        tag=tag,
+        keyword=keyword,
         user_info=user_info,
     )
     tools = await search_tools_in_db(search, db)
@@ -341,6 +365,8 @@ async def create_tool(tool_data: ToolCreate,
         version=tool_data.version,
         description=tool_data.description,
         types=tool_data.types,
+        tags=tool_data.tags,
+        keywords=tool_data.keywords,
         input_file_formats=tool_data.input_file_formats,
         output_file_formats=tool_data.output_file_formats,
         input_file_descriptions=tool_data.input_file_descriptions,

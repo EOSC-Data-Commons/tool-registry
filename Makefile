@@ -4,6 +4,7 @@ HOST_PORT ?= 8080
 ORG_NAME := eosc-data-commons
 IMAGE_NAME := $(ORG_NAME)/tool-registry
 VERSION = $(shell grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)
+PLATFORMS := linux/amd64,linux/arm64
 
 .PHONY: run sync force-sync install git-tag git-push-tag docker-login docker-check-login docker-build docker-push docker-release print-version bump
 run: sync
@@ -77,11 +78,21 @@ docker-check-login:
 		exit 1; \
 	fi
 
+# docker-build:
+# 	@echo "Building $(IMAGE_NAME):$(VERSION)"
+# 	uv lock
+# 	docker build --platform linux/amd64 -t ghcr.io/$(IMAGE_NAME):$(VERSION) .
+# 	docker tag ghcr.io/$(IMAGE_NAME):$(VERSION) ghcr.io/$(IMAGE_NAME):latest
+
 docker-build:
 	@echo "Building $(IMAGE_NAME):$(VERSION)"
 	uv lock
-	docker build --platform linux/amd64 -t ghcr.io/$(IMAGE_NAME):$(VERSION) .
-	docker tag ghcr.io/$(IMAGE_NAME):$(VERSION) ghcr.io/$(IMAGE_NAME):latest
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		-t ghcr.io/$(IMAGE_NAME):$(VERSION) \
+		-t ghcr.io/$(IMAGE_NAME):latest \
+		--push \
+		.
 
 docker-build-dev:
 	@echo "Building $(IMAGE_NAME):$(VERSION)-dev"
@@ -92,7 +103,7 @@ docker-push: docker-build
 	docker push ghcr.io/$(IMAGE_NAME):$(VERSION)
 	docker push ghcr.io/$(IMAGE_NAME):latest
 
-docker-release: docker-build docker-push
+docker-release: docker-build
 	@echo "Released $(IMAGE_NAME):$(VERSION)"
 
 docker-run:

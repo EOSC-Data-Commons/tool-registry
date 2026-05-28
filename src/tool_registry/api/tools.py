@@ -284,13 +284,6 @@ async def search_tools(
         all=all
     )
     tools, total = await search_tools_in_db(search, db)
-    # next page
-    # if offset + limit < total:
-    #     next_offset = offset + limit
-    #
-    #     response.headers["Link"] = (
-    #         f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
-    #     )
 
     response.headers["X-Total-Count"] = str(total)
 

@@ -2,7 +2,7 @@ import logging
 import mimedb
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -121,6 +121,8 @@ class ToolSearchParams(BaseModel):
     tag: Optional[str] = None
     keyword: Optional[str] = None
     user_info: Optional[dict] = None
+    limit: int = 100
+    offset: int = 0
 
 class FileInput(BaseModel):
     name: str
@@ -204,10 +206,14 @@ async def search_tools_in_db(
         query = query.where(
             search.output_format == any_(ToolGeneric.output_file_formats)
         )
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query)
+    query = query.limit(search.limit).offset(search.offset)
+
     logger.debug(f"Executing tool search with query: {query}")
     result = await db.execute(query)
     tools = result.scalars().all()
-    return tools
+    return (tools, total)
 
 @router.get(
     "/",
@@ -216,6 +222,7 @@ async def search_tools_in_db(
     description="Search for tools given query parameters.",
 )
 async def search_tools(
+    response: Response,
     name: Optional[str] = Query(
         None,
         description="Partial match for tool name.",
@@ -246,6 +253,12 @@ async def search_tools(
         description="Filter tools by keyword.",
         example="covid-19",
     ),
+    limit: Optional[int] = Query(
+        100, ge=1, le=1000, description="Maximum number of results to return."
+    ),
+    offset: Optional[int] = Query(
+        0, ge=0, description="Number of results to skip for pagination."
+    ),
     db: AsyncSession = Depends(get_db),
     user_info=Depends(get_current_user)
 ):
@@ -260,8 +273,20 @@ async def search_tools(
         tag=tag,
         keyword=keyword,
         user_info=user_info,
+        limit=limit,
+        offset=offset
     )
-    tools = await search_tools_in_db(search, db)
+    tools, total = await search_tools_in_db(search, db)
+    # next page
+    if offset + limit < total:
+        next_offset = offset + limit
+
+        response.headers["Link"] = (
+            f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
+        )
+
+    response.headers["X-Total-Count"] = str(total)
+
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
     return [ToolOut.from_orm(tool) for tool in tools]
 

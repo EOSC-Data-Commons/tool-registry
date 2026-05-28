@@ -123,6 +123,7 @@ class ToolSearchParams(BaseModel):
     user_info: Optional[dict] = None
     limit: int = 100
     offset: int = 0
+    all: bool = False
 
 class FileInput(BaseModel):
     name: str
@@ -208,7 +209,8 @@ async def search_tools_in_db(
         )
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query)
-    query = query.limit(search.limit).offset(search.offset)
+    if not search.all:
+        query = query.limit(search.limit).offset(search.offset)
 
     logger.debug(f"Executing tool search with query: {query}")
     result = await db.execute(query)
@@ -259,6 +261,10 @@ async def search_tools(
     offset: Optional[int] = Query(
         0, ge=0, description="Number of results to skip for pagination."
     ),
+    all: Optional[bool] = Query(
+        False,
+        description="If true, ignore pagination and return all results (overrides limit and offset).",
+    ),
     db: AsyncSession = Depends(get_db),
     user_info=Depends(get_current_user)
 ):
@@ -274,18 +280,52 @@ async def search_tools(
         keyword=keyword,
         user_info=user_info,
         limit=limit,
-        offset=offset
+        offset=offset,
+        all=all
     )
     tools, total = await search_tools_in_db(search, db)
     # next page
-    if offset + limit < total:
-        next_offset = offset + limit
-
-        response.headers["Link"] = (
-            f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
-        )
+    # if offset + limit < total:
+    #     next_offset = offset + limit
+    #
+    #     response.headers["Link"] = (
+    #         f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
+    #     )
 
     response.headers["X-Total-Count"] = str(total)
+
+    if not all:
+        links = []
+
+        # next
+        if offset + limit < total:
+            next_offset = offset + limit
+            links.append(
+                f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
+            )
+
+        # prev
+        if offset > 0:
+            prev_offset = max(offset - limit, 0)
+            links.append(
+                f'</tools?limit={limit}&offset={prev_offset}>; rel="prev"'
+            )
+
+        # first
+        links.append(
+            f'</tools?limit={limit}&offset=0>; rel="first"'
+        )
+
+        # last
+        last_offset = max(((total - 1) // limit) * limit, 0)
+        links.append(
+            f'</tools?limit={limit}&offset={last_offset}>; rel="last"'
+        )
+
+        response.headers["Link"] = ", ".join(links)
+    else:
+        # optional explicit indicator pagination is disabled
+        response.headers["Pagination"] = "disabled"
 
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
     return [ToolOut.from_orm(tool) for tool in tools]

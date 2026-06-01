@@ -1,6 +1,6 @@
 import logging
 
-from tool_registry.api import root, tools
+from tool_registry.api import root, tools, types
 from tool_registry.config import load_service_config, init_logging, get_app_version, load_db_config
 import tool_registry.security as security
 from fastapi import FastAPI
@@ -25,6 +25,7 @@ app = FastAPI(
 
 app.include_router(root.router, prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
+app.include_router(types.router, tags=["Types"], prefix=f"{API_PREFIX}/types")
 
 
 app.add_middleware(

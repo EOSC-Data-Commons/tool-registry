@@ -5,9 +5,8 @@ from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, String, cast
+from sqlalchemy import select, String, cast, distinct
 from sqlalchemy import any_, func, exists, literal, or_
-from sqlalchemy import cast
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, TEXT
 from datetime import datetime
 from toolmeta_models import ToolGeneric
@@ -478,6 +477,7 @@ async def update_tool(
     await db.refresh(tool)
 
     return {"message": "Tool updated successfully", "tool_id": tool.id}
+
 
 # For matching tools based on complex criteria (e.g. multiple file inputs), we use a POST endpoint to allow for a more complex request body.
 # Post body:

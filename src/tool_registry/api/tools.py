@@ -5,7 +5,7 @@ from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, String, cast
 from sqlalchemy import any_, func, exists, literal, or_
 from sqlalchemy import cast
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, TEXT
@@ -187,22 +187,26 @@ async def search_tools_in_db(
             ToolGeneric.created_by == search.user_info["user"]
         )
     if search.input_format:
-        pattern = f"%{search.input_format}%"
-
-        # LATERAL-style unnest
-        unnested = func.unnest(ToolGeneric.input_file_descriptions).alias("desc")
-
-        description_match = exists(
-            select(literal(1))
-            .select_from(unnested)
-            .where(unnested.column.ilike(pattern))
-        )
-
-        format_match = search.input_format == any_(ToolGeneric.input_file_formats)
-
         query = query.where(
-            or_(format_match, description_match)
+            search.input_format == any_(ToolGeneric.input_file_formats)
         )
+    # if search.input_format:
+    #     pattern = f"%{search.input_format}%"
+    #
+    #     # LATERAL-style unnest
+    #     unnested = func.unnest(ToolGeneric.input_file_descriptions).alias("desc")
+    #
+    #     description_match = exists(
+    #         select(literal(1))
+    #         .select_from(unnested)
+    #         .where(unnested.column.ilike(pattern))
+    #     )
+    #
+    #     format_match = search.input_format == any_(ToolGeneric.input_file_formats)
+    #
+    #     query = query.where(
+    #         or_(format_match, description_match)
+    #     )
     if search.output_format:
         query = query.where(
             search.output_format == any_(ToolGeneric.output_file_formats)
@@ -515,45 +519,67 @@ async def match_tools_post(
     logger.debug(f"Extracted file extensions for matching: {extensions} with operator: {operator}")
 
     query = select(ToolGeneric)
-    if operator == "or":
-        # For OR, we want to match any tool that accepts at least one of the formats
-        slot = func.jsonb_array_elements(
-            ToolGeneric.input_slots
-        ).table_valued("value").alias("slot")
+    extensions_list = list(extensions)
 
-        slot_value = cast(slot.c.value, JSONB)
+    if not extensions_list:
+        return db.execute(query).scalars().all()
+
+    if operator == "or":
         query = query.where(
-            exists(
-                select(1)
-                .select_from(slot)
-                .where(
-                    # slot_value.op("->>")("type") == "file",
-                    slot_value.op("->")("file_formats").op("?|")(
-                        cast(list(extensions), ARRAY(TEXT))
-                    )
-                )
+            ToolGeneric.input_file_formats.op("&&")(
+                cast(extensions_list, ARRAY(String))
             )
         )
-    if operator == "and":
-        for ext in extensions:
-            slot = func.jsonb_array_elements(
-                ToolGeneric.input_slots
-            ).table_valued("value").alias(f"slot_{ext}")
 
-            slot_value = cast(slot.c.value, JSONB)
-
-            query = query.where(
-                exists(
-                    select(1)
-                    .select_from(slot)
-                    .where(
-                        # optional type filter
-                        # slot_value.op("->>")("type") == "data_collection_input",
-
-                        slot_value.op("->")("file_formats").op("?")(ext)
-                    )
-                )
+    elif operator == "and":
+        query = query.where(
+            ToolGeneric.input_file_formats.op("@>")(
+                cast(extensions_list, ARRAY(String))
             )
+        )
+
+    else:
+        raise ValueError(f"Unsupported operator: {operator}")
+
+    # if operator == "or":
+    #     # For OR, we want to match any tool that accepts at least one of the formats
+    #     slot = func.jsonb_array_elements(
+    #         ToolGeneric.input_slots
+    #     ).table_valued("value").alias("slot")
+    #
+    #     slot_value = cast(slot.c.value, JSONB)
+    #     query = query.where(
+    #         exists(
+    #             select(1)
+    #             .select_from(slot)
+    #             .where(
+    #                 # slot_value.op("->>")("type") == "file",
+    #                 slot_value.op("->")("file_formats").op("?|")(
+    #                     cast(list(extensions), ARRAY(TEXT))
+    #                 )
+    #             )
+    #         )
+    #     )
+    # if operator == "and":
+    #     for ext in extensions:
+    #         slot = func.jsonb_array_elements(
+    #             ToolGeneric.input_slots
+    #         ).table_valued("value").alias(f"slot_{ext}")
+    #
+    #         slot_value = cast(slot.c.value, JSONB)
+    #
+    #         query = query.where(
+    #             exists(
+    #                 select(1)
+    #                 .select_from(slot)
+    #                 .where(
+    #                     # optional type filter
+    #                     # slot_value.op("->>")("type") == "data_collection_input",
+    #
+    #                     slot_value.op("->")("file_formats").op("?")(ext)
+    #                 )
+    #             )
+    #         )
 
     logger.debug(f"Executing query: { query.compile(compile_kwargs={'literal_binds': True}) }")
     result = await db.execute(query)

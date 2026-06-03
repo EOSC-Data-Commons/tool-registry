@@ -114,6 +114,7 @@ class ToolUpdate(BaseModel):
 
 class ToolSearchParams(BaseModel):
     name: Optional[str] = None
+    description: Optional[str] = None
     input_format: Optional[str] = None
     output_format: Optional[str] = None
     type: Optional[str] = None
@@ -165,6 +166,10 @@ async def search_tools_in_db(
         logger.debug(f"Searching for tools with name like: {search.name}")
         query = query.where(
             ToolGeneric.name.ilike(f"%{search.name}%"))
+    if search.description:
+        logger.debug(f"Searching for tools with description like: {search.description}")
+        query = query.where(
+            ToolGeneric.description.ilike(f"%{search.description}%"))
     if search.type:
         logger.debug(f"Filtering tools by type: {search.type}")
         query = query.where(
@@ -233,6 +238,11 @@ async def search_tools(
         description="Partial match for tool name.",
         example="genomic",
     ),
+    description: Optional[str] = Query(
+        None,
+        description="Partial match for tool description.",
+        example="alignment",
+    ),
     input_format: Optional[str] = Query(
         None,
         description="Filter tools by input format.",
@@ -276,6 +286,7 @@ async def search_tools(
     """
     search = ToolSearchParams(
         name=name,
+        description=description,
         input_format=input_format,
         output_format=output_format,
         type=type,

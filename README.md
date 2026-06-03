@@ -14,8 +14,7 @@
 - [x] API endpoint to add a new tool.
 - [x] API endpoint to update/remove existing tools
 - [x] API documentation (Swagger/OpenAPI)
-- [ ] Basic tests and CI pipeline
-- [ ] Deployment to Warehouse
+- [x] Deployment to Warehouse
 
 # Installation and Usage
 

@@ -180,11 +180,23 @@ async def search_tools_in_db(
         query = query.where(
             literal(search.tag).ilike(any_(ToolGeneric.tags))
         )
+    # if search.keyword:
+    #     logger.debug(f"Filtering tools by keyword: {search.keyword}")
+    #     query = query.where(
+    #         literal(search.keyword).ilike(any_(ToolGeneric.keywords))
+    #     )
     if search.keyword:
-        logger.debug(f"Filtering tools by keyword: {search.keyword}")
-        query = query.where(
-            literal(search.keyword).ilike(any_(ToolGeneric.keywords))
+        pattern = f"%{search.keyword}%"
+
+        unnested = func.unnest(ToolGeneric.keywords).alias("keyword")
+
+        keyword_match = exists(
+            select(literal(1))
+            .select_from(unnested)
+            .where(unnested.column.ilike(pattern))
         )
+
+    query = query.where(keyword_match)
     if search.user_info:
         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
         query = query.where(

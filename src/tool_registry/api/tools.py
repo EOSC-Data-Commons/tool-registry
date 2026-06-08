@@ -195,8 +195,8 @@ async def search_tools_in_db(
             .select_from(unnested)
             .where(unnested.column.ilike(pattern))
         )
+        query = query.where(keyword_match)
 
-    query = query.where(keyword_match)
     if search.user_info:
         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
         query = query.where(

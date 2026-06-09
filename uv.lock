@@ -711,14 +711,14 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.3" },
     { name = "pyjwt", specifier = ">=2.11.0" },
     { name = "requests", specifier = ">=2.32.5" },
-    { name = "toolmeta-models", git = "https://github.com/EOSC-Data-Commons/toolmeta-models.git?rev=v0.2.4" },
+    { name = "toolmeta-models", git = "https://github.com/EOSC-Data-Commons/toolmeta-models.git?rev=v0.2.5" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
 
 [[package]]
 name = "toolmeta-models"
-version = "0.2.4"
-source = { git = "https://github.com/EOSC-Data-Commons/toolmeta-models.git?rev=v0.2.4#e1feaa1d941b58377c8375002a1fd1ddf3fa57f5" }
+version = "0.2.5"
+source = { git = "https://github.com/EOSC-Data-Commons/toolmeta-models.git?rev=v0.2.5#d1ce0165640bb41fc8dfb24ec24975c77757971c" }
 dependencies = [
     { name = "pgvector" },
     { name = "pydantic" },

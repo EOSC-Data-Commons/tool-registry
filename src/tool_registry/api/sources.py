@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from uuid import UUID
-
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, HttpUrl
 from sqlalchemy.exc import IntegrityError
@@ -31,8 +31,31 @@ class HarvestSourceResponse(BaseModel):
     updated_at: datetime
 
 
+ALLOWED_SOURCE_DOMAINS = {
+    "zenodo.org",
+    "github.com",
+    "bio.tools",
+    "workflowhub.eu",
+}
+
+
+def is_allowed_source(url: str) -> bool:
+    hostname = urlparse(url).hostname
+
+    if not hostname:
+        return False
+
+    hostname = hostname.lower()
+
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in ALLOWED_SOURCE_DOMAINS
+    )
+
+
 @router.post(
     "",
+    description="Create a new harvest source",
     response_model=HarvestSourceResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -40,9 +63,17 @@ async def create_source(
     request: HarvestSourceCreate,
     session: AsyncSession = Depends(get_db),
 ):
+    url = str(request.url)
+
+    if not is_allowed_source(url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported harvest source",
+        )
+
     source = HarvestSource(
-        url=str(request.url),
-        schedule=request.schedule,
+        url=url,
+        # schedule=request.schedule,
     )
     logger.info("Creating harvest source: %s", source.url)
 
@@ -58,5 +89,4 @@ async def create_source(
             detail="Harvest source already exists",
         )
 
-    # return {"ok": True, "id": source.id, "url": source.url, "schedule": source.schedule}
     return source

@@ -1,7 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-# from tool_registry.api import root, tools, types, sources
 from tool_registry.api import root, tools, sources
 from tool_registry.config import (
     load_service_config,
@@ -44,7 +43,6 @@ app = FastAPI(
 
 app.include_router(root.router, prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
-# app.include_router(types.router, tags=["Types"], prefix=f"{API_PREFIX}/types")
 app.include_router(sources.router, tags=["Sources"], prefix=f"{API_PREFIX}/sources")
 
 

@@ -1,8 +1,15 @@
 import logging
+from contextlib import asynccontextmanager
 
-from tool_registry.api import root, tools, types
-from tool_registry.config import load_service_config, init_logging, get_app_version, load_db_config
+from tool_registry.api import root, tools, sources
+from tool_registry.config import (
+    load_service_config,
+    init_logging,
+    get_app_version,
+    load_db_config,
+)
 import tool_registry.security as security
+from tool_registry.db import create_tables
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -11,21 +18,32 @@ logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
 VERSION = get_app_version()
-logger.info(f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()} and service configuration: {service_config}")
+logger.info(
+    f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()} and service configuration: {service_config}"
+)
 security.init_nonce_db()
 ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
 logger.info(f"Admin token: {ADMIN_TOKEN}")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await create_tables()
+    yield
+
+
 app = FastAPI(
-    # title=project_details["title"],
-    # description=project_details["description"],
-    # version=f"{project_details['version']} (Build Date: {build_date})",
+    lifespan=lifespan,
 )
+# app = FastAPI(
+#     # title=project_details["title"],
+#     # description=project_details["description"],
+#     # version=f"{project_details['version']} (Build Date: {build_date})",
+# )
 
 app.include_router(root.router, prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")
-app.include_router(types.router, tags=["Types"], prefix=f"{API_PREFIX}/types")
+app.include_router(sources.router, tags=["Sources"], prefix=f"{API_PREFIX}/sources")
 
 
 app.add_middleware(

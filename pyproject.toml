@@ -3,7 +3,6 @@ name = "tool-registry"
 version = "1.0.0"
 description = "Tools Registry (Catalogue of Tools): a reference implementation and specification to publish, curate, and expose value‑adding services, workflows, and tools in a managed registry."
 readme = "README.md"
-title = "Tool Registry API Service"
 requires-python = ">=3.12.8"
 dependencies = [
     "cryptography>=46.0.5",
@@ -13,7 +12,8 @@ dependencies = [
     "psycopg[binary]>=3.3.3",
     "pyjwt>=2.11.0",
     "requests>=2.32.5",
-    "toolmeta-models @ git+https://github.com/EOSC-Data-Commons/toolmeta-models.git@v0.2.5",
+    # "toolmeta-models @ git+https://github.com/EOSC-Data-Commons/toolmeta-models.git@v0.2.5",
+    "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@dev",
     "mimedb @ git+https://github.com/Dans-labs/mimedb.git@v0.1.2",
     "uvicorn>=0.40.0",
 ]

@@ -1,6 +1,6 @@
 export PYTHONPATH := $(PWD)/src:$(PYTHONPATH)
-PORT ?= 8080
-HOST_PORT ?= 8080
+PORT ?= 9090
+HOST_PORT ?= 9090
 ORG_NAME := eosc-data-commons
 IMAGE_NAME := $(ORG_NAME)/tool-registry
 VERSION = $(shell grep '^version' pyproject.toml | head -1 | cut -d '"' -f2)

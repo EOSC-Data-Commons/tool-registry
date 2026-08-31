@@ -1,6 +1,7 @@
 # conf
 **/.secrets.toml
 cache/
+data/
 
 *.override.yml
 *.dev.yml

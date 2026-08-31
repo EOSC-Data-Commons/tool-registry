@@ -9,7 +9,13 @@ from sqlalchemy import select, String, cast, distinct
 from sqlalchemy import any_, func, exists, literal, or_
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, TEXT
 from datetime import datetime
-from toolmeta_models import ToolGeneric
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
+# from toolmeta_models import ToolGeneric
+from toolmeta_harvester.db.models import ToolMetadata
 from tool_registry.db import get_db
 from tool_registry.security import validate_token, get_current_user
 
@@ -19,26 +25,82 @@ router = APIRouter()
 
 
 class ToolOut(BaseModel):
-    id: int
-    uri: str
-    location: str
-    name: str
-    description: Optional[str]
-    license: Optional[str]
-    keywords: Optional[list[str]]
-    tags: Optional[list[str]]
-    version: Optional[str]
-    types: Optional[list[str]]
-    input_file_formats: Optional[list[str]]
-    output_file_formats: Optional[list[str]]
-    input_file_descriptions: Optional[list[str]]
-    output_file_descriptions: Optional[list[str]]
-    input_slots: Optional[list[dict]]
-    output_slots: Optional[list[dict]]
-    created_by: str
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
+    id: UUID
+
+    quality_score: float | None = None
+
+    # Provenance
+    source_identifier: str | None = None
+    source_url: str | None = None
+    metadata_url: str | None = None
+    metadata_format: str
+    metadata_version: str | None = None
+
+    # CodeMeta / schema.org core
+    title: str | None = None
+    description: str | None = None
+    raw_description: str | None = None
+    version: str | None = None
+    license: str | None = None
+
+    identifiers: list[str]
+
+    url: str | None = None
+    code_repository: str | None = None
+
+    keywords: list[str]
+    authors: list[dict[str, Any]]
+    organizations: list[dict[str, Any]]
+    types: list[str]
+
+    programming_languages: list[dict[str, Any]]
+    runtime_platforms: list[dict[str, Any]]
+    software_requirements: list[dict[str, Any]]
+
+    # Scientific extensions
+    software_types: list[dict[str, Any]]
+    consumes_data: list[dict[str, Any]]
+    produces_data: list[dict[str, Any]]
+
+    # RO-Crate inputs / outputs
+    inputs: list[dict[str, Any]]
+    outputs: list[dict[str, Any]]
+
+    # Source preservation
+    raw_metadata: dict[str, Any]
+
+    harvested_at: datetime
+    pipeline_tag: str | None = None
+
+    date_created: datetime | None = None
+    date_published: datetime | None = None
+    date_modified: datetime | None = None
+
+
+# class ToolOut(BaseModel):
+#     id: int
+#     uri: str
+#     location: str
+#     name: str
+#     description: Optional[str]
+#     license: Optional[str]
+#     keywords: Optional[list[str]]
+#     tags: Optional[list[str]]
+#     version: Optional[str]
+#     types: Optional[list[str]]
+#     input_file_formats: Optional[list[str]]
+#     output_file_formats: Optional[list[str]]
+#     input_file_descriptions: Optional[list[str]]
+#     output_file_descriptions: Optional[list[str]]
+#     input_slots: Optional[list[dict]]
+#     output_slots: Optional[list[dict]]
+#     created_by: str
+#
+#     class Config:
+#         from_attributes = True
+
 
 class ToolOutExt(ToolOut):
     raw_definition: Optional[dict]
@@ -49,6 +111,7 @@ class ToolOutExt(ToolOut):
     created_at: datetime
     updated_at: Optional[datetime]
     # created_by: str
+
 
 class ToolCreate(BaseModel):
     uri: str
@@ -79,6 +142,7 @@ class ToolCreate(BaseModel):
             return []
         return [fmt.lstrip(".").lower() for fmt in v if fmt]
 
+
 class ToolUpdate(BaseModel):
     uri: Optional[str] = None
     location: Optional[str] = None
@@ -108,22 +172,18 @@ class ToolUpdate(BaseModel):
             return None
         return [fmt.lstrip(".").lower() for fmt in v if fmt]
 
-    model_config = {
-        "extra": "forbid"
-    }
+    model_config = {"extra": "forbid"}
+
 
 class ToolSearchParams(BaseModel):
-    name: Optional[str] = None
+    title: Optional[str] = None
     description: Optional[str] = None
-    input_format: Optional[str] = None
-    output_format: Optional[str] = None
-    type: Optional[str] = None
-    tag: Optional[str] = None
+    source: Optional[str] = None
     keyword: Optional[str] = None
-    user_info: Optional[dict] = None
     limit: int = 100
     offset: int = 0
     all: bool = False
+
 
 class FileInput(BaseModel):
     name: str
@@ -139,57 +199,120 @@ class ToolMatchRequest(BaseModel):
     inputs: List[FileInput] = Field(..., min_items=1)
     options: Optional[MatchOptions] = None
 
-async def get_tool_by_id(
-    id: int, db: AsyncSession
-) -> Optional[ToolGeneric]:
-    query = select(ToolGeneric).where(
-        ToolGeneric.id == id)
-    result = await db.execute(query)
-    tool = result.scalars().first()
-    return tool
 
-async def get_tool_by_user(
-    user: str, db: AsyncSession
-) -> Optional[ToolGeneric]:
-    query = select(ToolGeneric).where(
-        ToolGeneric.created_by == user)
-    result = await db.execute(query)
-    tool = result.scalars().first()
-    return tool
+# async def get_tool_by_id(
+#     id: int, db: AsyncSession
+# ) -> Optional[ToolGeneric]:
+#     query = select(ToolGeneric).where(
+#         ToolGeneric.id == id)
+#     result = await db.execute(query)
+#     tool = result.scalars().first()
+#     return tool
+
+# async def get_tool_by_user(
+#     user: str, db: AsyncSession
+# ) -> Optional[ToolGeneric]:
+#     query = select(ToolGeneric).where(
+#         ToolGeneric.created_by == user)
+#     result = await db.execute(query)
+#     tool = result.scalars().first()
+#     return tool
+#
+# async def search_tools_in_db(
+#     search: ToolSearchParams, db: AsyncSession
+# ) -> list[ToolGeneric]:
+#     query = select(ToolGeneric)
+#     logger.debug(f"Starting tool search with parameters: {search.model_dump()}")
+#     if search.name:
+#         logger.debug(f"Searching for tools with name like: {search.name}")
+#         query = query.where(
+#             ToolGeneric.name.ilike(f"%{search.name}%"))
+#     if search.description:
+#         logger.debug(f"Searching for tools with description like: {search.description}")
+#         query = query.where(
+#             ToolGeneric.description.ilike(f"%{search.description}%"))
+#     if search.type:
+#         logger.debug(f"Filtering tools by type: {search.type}")
+#         query = query.where(
+#             literal(search.type).ilike(any_(ToolGeneric.types))
+#         )
+#     if search.tag:
+#         logger.debug(f"Filtering tools by tag: {search.tag}")
+#         query = query.where(
+#             literal(search.tag).ilike(any_(ToolGeneric.tags))
+#         )
+#     # if search.keyword:
+#     #     logger.debug(f"Filtering tools by keyword: {search.keyword}")
+#     #     query = query.where(
+#     #         literal(search.keyword).ilike(any_(ToolGeneric.keywords))
+#     #     )
+#     if search.keyword:
+#         pattern = f"%{search.keyword}%"
+#
+#         unnested = func.unnest(ToolGeneric.keywords).alias("keyword")
+#
+#         keyword_match = exists(
+#             select(literal(1))
+#             .select_from(unnested)
+#             .where(unnested.column.ilike(pattern))
+#         )
+#         query = query.where(keyword_match)
+#
+#     if search.user_info:
+#         logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
+#         query = query.where(
+#             ToolGeneric.created_by == search.user_info["user"]
+#         )
+#     if search.input_format:
+#         query = query.where(
+#             search.input_format == any_(ToolGeneric.input_file_formats)
+#         )
+#     # if search.input_format:
+#     #     pattern = f"%{search.input_format}%"
+#     #
+#     #     # LATERAL-style unnest
+#     #     unnested = func.unnest(ToolGeneric.input_file_descriptions).alias("desc")
+#     #
+#     #     description_match = exists(
+#     #         select(literal(1))
+#     #         .select_from(unnested)
+#     #         .where(unnested.column.ilike(pattern))
+#     #     )
+#     #
+#     #     format_match = search.input_format == any_(ToolGeneric.input_file_formats)
+#     #
+#     #     query = query.where(
+#     #         or_(format_match, description_match)
+#     #     )
+#     if search.output_format:
+#         query = query.where(
+#             search.output_format == any_(ToolGeneric.output_file_formats)
+#         )
+#     count_query = select(func.count()).select_from(query.subquery())
+#     total = await db.scalar(count_query)
+#     if not search.all:
+#         query = query.limit(search.limit).offset(search.offset)
+#
+#     logger.debug(f"Executing tool search with query: {query}")
+#     result = await db.execute(query)
+#     tools = result.scalars().all()
+#     return (tools, total)
+
 
 async def search_tools_in_db(
     search: ToolSearchParams, db: AsyncSession
-) -> list[ToolGeneric]:
-    query = select(ToolGeneric)
+) -> list[ToolMetadata]:
+    query = select(ToolMetadata)
     logger.debug(f"Starting tool search with parameters: {search.model_dump()}")
-    if search.name:
-        logger.debug(f"Searching for tools with name like: {search.name}")
-        query = query.where(
-            ToolGeneric.name.ilike(f"%{search.name}%"))
+    if search.title:
+        logger.debug(f"Searching for tools with name like: {search.title}")
+        query = query.where(ToolMetadata.title.ilike(f"%{search.title}%"))
     if search.description:
         logger.debug(f"Searching for tools with description like: {search.description}")
-        query = query.where(
-            ToolGeneric.description.ilike(f"%{search.description}%"))
-    if search.type:
-        logger.debug(f"Filtering tools by type: {search.type}")
-        query = query.where(
-            literal(search.type).ilike(any_(ToolGeneric.types))
-        )
-    if search.tag:
-        logger.debug(f"Filtering tools by tag: {search.tag}")
-        query = query.where(
-            literal(search.tag).ilike(any_(ToolGeneric.tags))
-        )
-    # if search.keyword:
-    #     logger.debug(f"Filtering tools by keyword: {search.keyword}")
-    #     query = query.where(
-    #         literal(search.keyword).ilike(any_(ToolGeneric.keywords))
-    #     )
+        query = query.where(ToolMetadata.description.ilike(f"%{search.description}%"))
     if search.keyword:
         pattern = f"%{search.keyword}%"
-
-        unnested = func.unnest(ToolGeneric.keywords).alias("keyword")
-
+        unnested = func.unnest(ToolMetadata.keywords).alias("keyword")
         keyword_match = exists(
             select(literal(1))
             .select_from(unnested)
@@ -197,36 +320,9 @@ async def search_tools_in_db(
         )
         query = query.where(keyword_match)
 
-    if search.user_info:
-        logger.debug(f"Filtering tools by creator: {search.user_info['user']}")
-        query = query.where(
-            ToolGeneric.created_by == search.user_info["user"]
-        )
-    if search.input_format:
-        query = query.where(
-            search.input_format == any_(ToolGeneric.input_file_formats)
-        )
-    # if search.input_format:
-    #     pattern = f"%{search.input_format}%"
-    #
-    #     # LATERAL-style unnest
-    #     unnested = func.unnest(ToolGeneric.input_file_descriptions).alias("desc")
-    #
-    #     description_match = exists(
-    #         select(literal(1))
-    #         .select_from(unnested)
-    #         .where(unnested.column.ilike(pattern))
-    #     )
-    #
-    #     format_match = search.input_format == any_(ToolGeneric.input_file_formats)
-    #
-    #     query = query.where(
-    #         or_(format_match, description_match)
-    #     )
-    if search.output_format:
-        query = query.where(
-            search.output_format == any_(ToolGeneric.output_file_formats)
-        )
+    if search.source:
+        query = query.where(ToolMetadata.source_url.ilike(f"%://{search.source}/%"))
+
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query)
     if not search.all:
@@ -237,6 +333,7 @@ async def search_tools_in_db(
     tools = result.scalars().all()
     return (tools, total)
 
+
 @router.get(
     "/",
     response_model=list[ToolOut],
@@ -244,10 +341,11 @@ async def search_tools_in_db(
     description="Search for tools given query parameters.",
 )
 async def search_tools(
+    request: Request,
     response: Response,
-    name: Optional[str] = Query(
+    title: Optional[str] = Query(
         None,
-        description="Partial match for tool name.",
+        description="Partial match for tool title/name.",
         example="genomic",
     ),
     description: Optional[str] = Query(
@@ -255,30 +353,15 @@ async def search_tools(
         description="Partial match for tool description.",
         example="alignment",
     ),
-    input_format: Optional[str] = Query(
-        None,
-        description="Filter tools by input format.",
-        example="fasta",
-    ),
-    output_format: Optional[str] = Query(
-        None,
-        description="Filter tools by output format.",
-        example="cram",
-    ),
-    type: Optional[str] = Query(
-        None,
-        description="Filter tools by type.",
-        example="galaxy_workflow",
-    ),
-    tag: Optional[str] = Query(
-        None,
-        description="Filter tools by tag.",
-        example="covid-19",
-    ),
     keyword: Optional[str] = Query(
         None,
         description="Filter tools by keyword.",
         example="covid-19",
+    ),
+    source: Optional[str] = Query(
+        None,
+        description="Filter tools by source domain (e.g., github.com, zenodo.org)",
+        example="workflowhub.eu",
     ),
     limit: Optional[int] = Query(
         100, ge=1, le=1000, description="Maximum number of results to return."
@@ -291,24 +374,30 @@ async def search_tools(
         description="If true, ignore pagination and return all results (overrides limit and offset).",
     ),
     db: AsyncSession = Depends(get_db),
-    user_info=Depends(get_current_user)
+    user_info=Depends(get_current_user),
 ):
     """
     Search for tools based on provided criteria.
     """
     search = ToolSearchParams(
-        name=name,
+        title=title,
         description=description,
-        input_format=input_format,
-        output_format=output_format,
-        type=type,
-        tag=tag,
         keyword=keyword,
-        user_info=user_info,
+        source=source,
         limit=limit,
         offset=offset,
-        all=all
+        all=all,
     )
+    allowed_params = set(ToolSearchParams.model_fields)
+
+    unknown_params = set(request.query_params.keys()) - allowed_params
+
+    if unknown_params:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown query parameter(s): {', '.join(sorted(unknown_params))}",
+        )
+
     tools, total = await search_tools_in_db(search, db)
 
     response.headers["X-Total-Count"] = str(total)
@@ -319,27 +408,19 @@ async def search_tools(
         # next
         if offset + limit < total:
             next_offset = offset + limit
-            links.append(
-                f'</tools?limit={limit}&offset={next_offset}>; rel="next"'
-            )
+            links.append(f'</tools?limit={limit}&offset={next_offset}>; rel="next"')
 
         # prev
         if offset > 0:
             prev_offset = max(offset - limit, 0)
-            links.append(
-                f'</tools?limit={limit}&offset={prev_offset}>; rel="prev"'
-            )
+            links.append(f'</tools?limit={limit}&offset={prev_offset}>; rel="prev"')
 
         # first
-        links.append(
-            f'</tools?limit={limit}&offset=0>; rel="first"'
-        )
+        links.append(f'</tools?limit={limit}&offset=0>; rel="first"')
 
         # last
         last_offset = max(((total - 1) // limit) * limit, 0)
-        links.append(
-            f'</tools?limit={limit}&offset={last_offset}>; rel="last"'
-        )
+        links.append(f'</tools?limit={limit}&offset={last_offset}>; rel="last"')
 
         response.headers["Link"] = ", ".join(links)
     else:
@@ -349,266 +430,305 @@ async def search_tools(
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
     return [ToolOut.from_orm(tool) for tool in tools]
 
-@router.get(
-    "/{identifier}/raw_definition",
-    description="Retrieve the raw definition of a tool by id",
-    tags=["Tools"],
-)
-async def get_tool_raw_definition(
-    request: Request,
-    identifier: int = Path(
-        ...,
-        description="The internal id of the tool to retrieve.",
-        example="5",
-    ),
+
+@router.get("/sources", response_model=list[str])
+async def get_source_domains(
     db: AsyncSession = Depends(get_db),
-):
-    logger.debug(f"Received request to retrieve tool with ID: {identifier}")
-    """
-    Retrieve a single tool by its ID.
-    """
-    tool = await get_tool_by_id(identifier, db)
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-
-    raw = tool.raw_definition or {}
-    accept = request.headers.get("accept", "")
-    if "application/json" in accept or "*/*" in accept or not accept:
-        return JSONResponse(content=raw)
-
-    if "text/plain" in accept:
-        # ensure string output
-        if isinstance(raw, str):
-            return PlainTextResponse(content=raw)
-        else:
-            # fallback: serialise non-string to text
-            return PlainTextResponse(content=str(raw))
-
-    raise HTTPException(status_code=406, detail="Not Acceptable")
-
-@router.get(
-    "/{identifier}",
-    response_model=ToolOutExt,
-    description="Retrieve a single tool by id.",
-    tags=["Tools"],
-)
-async def get_tools_by_identifier(
-    identifier: int = Path(
-        ...,
-        description="The internal id of the tool to retrieve.",
-        example="5",
-    ),
-    db: AsyncSession = Depends(get_db),
-):
-    logger.debug(f"Received request to retrieve tool with ID: {identifier}")
-    """
-    Retrieve a single tool by its ID.
-    """
-    tool = await get_tool_by_id(identifier, db)
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    logger.debug(f"Retrieved tool: {tool.name} (ID: {tool.id})")
-    return ToolOutExt.from_orm(tool)
-
-
-@router.delete("/{identifier}", description="Delete a tool by id.", tags=["Tools"])
-async def delete_tool(identifier: int = Path(..., description="The internal id of the tool to delete.", example="5"),
-                      user_info=Depends(validate_token),  
-                      db: AsyncSession = Depends(get_db)):
-    tool = await get_tool_by_id(identifier, db)
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    if tool.created_by != user_info["user"]:
-        raise HTTPException(status_code=403, detail="You do not have permission to delete this tool")
-    await db.delete(tool)
-    await db.commit()
-    return {"message": "Tool deleted successfully"}
-
-@router.post("/", description="Create a new tool in the registry.", tags=["Tools"])
-async def create_tool(tool_data: ToolCreate, 
-                      user_info=Depends(validate_token),  
-                      db: AsyncSession = Depends(get_db)):
-    logger.debug(f"Received tool creation request with data: {tool_data.model_dump()}")
-    result = await db.execute(
-        select(ToolGeneric).where(ToolGeneric.uri == tool_data.uri)
-    )
-    existing_tool = result.scalar_one_or_none()
-
-    if existing_tool:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": f"Tool with uri '{tool_data.uri}' already exists",
-                "existing_tool_id": existing_tool.id,
-            }
-        )
-    new_tool = ToolGeneric(
-        uri=tool_data.uri,
-        location=tool_data.location,
-        name=tool_data.name,
-        version=tool_data.version,
-        description=tool_data.description,
-        license=tool_data.license,
-        types=tool_data.types,
-        tags=tool_data.tags,
-        keywords=tool_data.keywords,
-        input_file_formats=tool_data.input_file_formats,
-        output_file_formats=tool_data.output_file_formats,
-        input_file_descriptions=tool_data.input_file_descriptions,
-        output_file_descriptions=tool_data.output_file_descriptions,
-        input_slots=tool_data.input_slots,
-        output_slots=tool_data.output_slots,
-        raw_definition=tool_data.raw_definition,
-        raw_metadata=tool_data.raw_metadata,
-        metadata_schema=tool_data.metadata_schema,
-        metadata_version=tool_data.metadata_version,
-        metadata_type=tool_data.metadata_type,
-        created_by=user_info["user"],
+) -> list[str]:
+    domain = func.split_part(
+        func.split_part(ToolMetadata.source_url, "://", 2),
+        "/",
+        1,
     )
 
-    db.add(new_tool)
-    await db.commit()
-    await db.refresh(new_tool)
-
-    return {"message": "Tool created successfully", "tool_id": new_tool.id}
-
-@router.patch("/{identifier}", description="Update an existing tool.", tags=["Tools"])
-async def update_tool(
-    identifier: int,
-    tool_data: ToolUpdate,
-    user_info=Depends(validate_token),
-    db: AsyncSession = Depends(get_db),
-):
-    logger.debug(f"Received tool update request for ID {identifier} with data: {tool_data.model_dump()}")
-    # Fetch tool
-    result = await db.execute(
-        select(ToolGeneric).where(ToolGeneric.id == identifier)
+    query = (
+        select(domain.label("domain"))
+        .where(ToolMetadata.source_url.is_not(None))
+        .distinct()
+        .order_by(domain)
     )
-    tool = result.scalar_one_or_none()
 
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-
-    # Ownership check
-    if tool.created_by != user_info["user"]:
-        raise HTTPException(status_code=403, detail="Not allowed to update this tool")
-
-
-    # Only update provided fields
-    update_data = tool_data.model_dump(exclude_unset=True, exclude_none=True)
-
-    for field, value in update_data.items():
-        setattr(tool, field, value)
-
-    await db.commit()
-    await db.refresh(tool)
-
-    return {"message": "Tool updated successfully", "tool_id": tool.id}
-
-
-# For matching tools based on complex criteria (e.g. multiple file inputs), we use a POST endpoint to allow for a more complex request body.
-# Post body:
-#{
-#   "type": "file",
-#   "inputs": [
-#     { "name": "foo.json", "mime_type": "application/json" },
-#     { "name": "bar.csv", "mime_type": "text/csv" }
-#
-#   ]
-# }
-@router.post(
-    "/match",
-    response_model=list[ToolOut],
-    description="Match tools given complex input criteria.",
-    tags=["Tools"],
-)
-async def match_tools_post(
-    match: ToolMatchRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    logger.debug(f"Received tool match request with body: {match}")
-    if match.type != "file":
-        raise HTTPException(status_code=400, detail="Unsupported match type")
-    extensions = set()
-    if match.options and match.options.operator:
-        operator = match.options.operator.lower()
-
-    for file in match.inputs:
-        mime_type = file.mime_type
-        file_extensions = mimedb.get_extensions(mime_type)
-        if not file_extensions:
-            file_extension = file.name.split(".")[-1].lower() if "." in file.name else None
-            if file_extension:
-                extensions.add(file_extension)
-        else:
-            extensions.update(file_extensions)
-
-    logger.debug(f"Extracted file extensions for matching: {extensions} with operator: {operator}")
-
-    query = select(ToolGeneric)
-    extensions_list = list(extensions)
-
-    if not extensions_list:
-        return db.execute(query).scalars().all()
-
-    if operator == "or":
-        query = query.where(
-            ToolGeneric.input_file_formats.op("&&")(
-                cast(extensions_list, ARRAY(String))
-            )
-        )
-
-    elif operator == "and":
-        query = query.where(
-            ToolGeneric.input_file_formats.op("@>")(
-                cast(extensions_list, ARRAY(String))
-            )
-        )
-
-    else:
-        raise ValueError(f"Unsupported operator: {operator}")
-
-    # if operator == "or":
-    #     # For OR, we want to match any tool that accepts at least one of the formats
-    #     slot = func.jsonb_array_elements(
-    #         ToolGeneric.input_slots
-    #     ).table_valued("value").alias("slot")
-    #
-    #     slot_value = cast(slot.c.value, JSONB)
-    #     query = query.where(
-    #         exists(
-    #             select(1)
-    #             .select_from(slot)
-    #             .where(
-    #                 # slot_value.op("->>")("type") == "file",
-    #                 slot_value.op("->")("file_formats").op("?|")(
-    #                     cast(list(extensions), ARRAY(TEXT))
-    #                 )
-    #             )
-    #         )
-    #     )
-    # if operator == "and":
-    #     for ext in extensions:
-    #         slot = func.jsonb_array_elements(
-    #             ToolGeneric.input_slots
-    #         ).table_valued("value").alias(f"slot_{ext}")
-    #
-    #         slot_value = cast(slot.c.value, JSONB)
-    #
-    #         query = query.where(
-    #             exists(
-    #                 select(1)
-    #                 .select_from(slot)
-    #                 .where(
-    #                     # optional type filter
-    #                     # slot_value.op("->>")("type") == "data_collection_input",
-    #
-    #                     slot_value.op("->")("file_formats").op("?")(ext)
-    #                 )
-    #             )
-    #         )
-
-    logger.debug(f"Executing query: { query.compile(compile_kwargs={'literal_binds': True}) }")
     result = await db.execute(query)
-    tools = result.scalars().all()
-    return [ToolOut.from_orm(tool) for tool in tools]
+
+    return list(result.scalars().all())
+
+
+# @router.get(
+#     "/{identifier}/raw_definition",
+#     description="Retrieve the raw definition of a tool by id",
+#     tags=["Tools"],
+# )
+# async def get_tool_raw_definition(
+#     request: Request,
+#     identifier: int = Path(
+#         ...,
+#         description="The internal id of the tool to retrieve.",
+#         example="5",
+#     ),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(f"Received request to retrieve tool with ID: {identifier}")
+#     """
+#     Retrieve a single tool by its ID.
+#     """
+#     tool = await get_tool_by_id(identifier, db)
+#     if not tool:
+#         raise HTTPException(status_code=404, detail="Tool not found")
+#
+#     raw = tool.raw_definition or {}
+#     accept = request.headers.get("accept", "")
+#     if "application/json" in accept or "*/*" in accept or not accept:
+#         return JSONResponse(content=raw)
+#
+#     if "text/plain" in accept:
+#         # ensure string output
+#         if isinstance(raw, str):
+#             return PlainTextResponse(content=raw)
+#         else:
+#             # fallback: serialise non-string to text
+#             return PlainTextResponse(content=str(raw))
+#
+#     raise HTTPException(status_code=406, detail="Not Acceptable")
+#
+#
+# @router.get(
+#     "/{identifier}",
+#     response_model=ToolOutExt,
+#     description="Retrieve a single tool by id.",
+#     tags=["Tools"],
+# )
+# async def get_tools_by_identifier(
+#     identifier: int = Path(
+#         ...,
+#         description="The internal id of the tool to retrieve.",
+#         example="5",
+#     ),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(f"Received request to retrieve tool with ID: {identifier}")
+#     """
+#     Retrieve a single tool by its ID.
+#     """
+#     tool = await get_tool_by_id(identifier, db)
+#     if not tool:
+#         raise HTTPException(status_code=404, detail="Tool not found")
+#     logger.debug(f"Retrieved tool: {tool.name} (ID: {tool.id})")
+#     return ToolOutExt.from_orm(tool)
+#
+#
+# @router.delete("/{identifier}", description="Delete a tool by id.", tags=["Tools"])
+# async def delete_tool(
+#     identifier: int = Path(
+#         ..., description="The internal id of the tool to delete.", example="5"
+#     ),
+#     user_info=Depends(validate_token),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     tool = await get_tool_by_id(identifier, db)
+#     if not tool:
+#         raise HTTPException(status_code=404, detail="Tool not found")
+#     if tool.created_by != user_info["user"]:
+#         raise HTTPException(
+#             status_code=403, detail="You do not have permission to delete this tool"
+#         )
+#     await db.delete(tool)
+#     await db.commit()
+#     return {"message": "Tool deleted successfully"}
+#
+#
+# @router.post("/", description="Create a new tool in the registry.", tags=["Tools"])
+# async def create_tool(
+#     tool_data: ToolCreate,
+#     user_info=Depends(validate_token),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(f"Received tool creation request with data: {tool_data.model_dump()}")
+#     result = await db.execute(
+#         select(ToolGeneric).where(ToolGeneric.uri == tool_data.uri)
+#     )
+#     existing_tool = result.scalar_one_or_none()
+#
+#     if existing_tool:
+#         raise HTTPException(
+#             status_code=400,
+#             detail={
+#                 "message": f"Tool with uri '{tool_data.uri}' already exists",
+#                 "existing_tool_id": existing_tool.id,
+#             },
+#         )
+#     new_tool = ToolGeneric(
+#         uri=tool_data.uri,
+#         location=tool_data.location,
+#         name=tool_data.name,
+#         version=tool_data.version,
+#         description=tool_data.description,
+#         license=tool_data.license,
+#         types=tool_data.types,
+#         tags=tool_data.tags,
+#         keywords=tool_data.keywords,
+#         input_file_formats=tool_data.input_file_formats,
+#         output_file_formats=tool_data.output_file_formats,
+#         input_file_descriptions=tool_data.input_file_descriptions,
+#         output_file_descriptions=tool_data.output_file_descriptions,
+#         input_slots=tool_data.input_slots,
+#         output_slots=tool_data.output_slots,
+#         raw_definition=tool_data.raw_definition,
+#         raw_metadata=tool_data.raw_metadata,
+#         metadata_schema=tool_data.metadata_schema,
+#         metadata_version=tool_data.metadata_version,
+#         metadata_type=tool_data.metadata_type,
+#         created_by=user_info["user"],
+#     )
+#
+#     db.add(new_tool)
+#     await db.commit()
+#     await db.refresh(new_tool)
+#
+#     return {"message": "Tool created successfully", "tool_id": new_tool.id}
+#
+#
+# @router.patch("/{identifier}", description="Update an existing tool.", tags=["Tools"])
+# async def update_tool(
+#     identifier: int,
+#     tool_data: ToolUpdate,
+#     user_info=Depends(validate_token),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(
+#         f"Received tool update request for ID {identifier} with data: {tool_data.model_dump()}"
+#     )
+#     # Fetch tool
+#     result = await db.execute(select(ToolGeneric).where(ToolGeneric.id == identifier))
+#     tool = result.scalar_one_or_none()
+#
+#     if not tool:
+#         raise HTTPException(status_code=404, detail="Tool not found")
+#
+#     # Ownership check
+#     if tool.created_by != user_info["user"]:
+#         raise HTTPException(status_code=403, detail="Not allowed to update this tool")
+#
+#     # Only update provided fields
+#     update_data = tool_data.model_dump(exclude_unset=True, exclude_none=True)
+#
+#     for field, value in update_data.items():
+#         setattr(tool, field, value)
+#
+#     await db.commit()
+#     await db.refresh(tool)
+#
+#     return {"message": "Tool updated successfully", "tool_id": tool.id}
+#
+#
+# # For matching tools based on complex criteria (e.g. multiple file inputs), we use a POST endpoint to allow for a more complex request body.
+# # Post body:
+# # {
+# #   "type": "file",
+# #   "inputs": [
+# #     { "name": "foo.json", "mime_type": "application/json" },
+# #     { "name": "bar.csv", "mime_type": "text/csv" }
+# #
+# #   ]
+# # }
+# @router.post(
+#     "/match",
+#     response_model=list[ToolOut],
+#     description="Match tools given complex input criteria.",
+#     tags=["Tools"],
+# )
+# async def match_tools_post(
+#     match: ToolMatchRequest,
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(f"Received tool match request with body: {match}")
+#     if match.type != "file":
+#         raise HTTPException(status_code=400, detail="Unsupported match type")
+#     extensions = set()
+#     if match.options and match.options.operator:
+#         operator = match.options.operator.lower()
+#
+#     for file in match.inputs:
+#         mime_type = file.mime_type
+#         file_extensions = mimedb.get_extensions(mime_type)
+#         if not file_extensions:
+#             file_extension = (
+#                 file.name.split(".")[-1].lower() if "." in file.name else None
+#             )
+#             if file_extension:
+#                 extensions.add(file_extension)
+#         else:
+#             extensions.update(file_extensions)
+#
+#     logger.debug(
+#         f"Extracted file extensions for matching: {extensions} with operator: {operator}"
+#     )
+#
+#     query = select(ToolGeneric)
+#     extensions_list = list(extensions)
+#
+#     if not extensions_list:
+#         return db.execute(query).scalars().all()
+#
+#     if operator == "or":
+#         query = query.where(
+#             ToolGeneric.input_file_formats.op("&&")(
+#                 cast(extensions_list, ARRAY(String))
+#             )
+#         )
+#
+#     elif operator == "and":
+#         query = query.where(
+#             ToolGeneric.input_file_formats.op("@>")(
+#                 cast(extensions_list, ARRAY(String))
+#             )
+#         )
+#
+#     else:
+#         raise ValueError(f"Unsupported operator: {operator}")
+#
+#     # if operator == "or":
+#     #     # For OR, we want to match any tool that accepts at least one of the formats
+#     #     slot = func.jsonb_array_elements(
+#     #         ToolGeneric.input_slots
+#     #     ).table_valued("value").alias("slot")
+#     #
+#     #     slot_value = cast(slot.c.value, JSONB)
+#     #     query = query.where(
+#     #         exists(
+#     #             select(1)
+#     #             .select_from(slot)
+#     #             .where(
+#     #                 # slot_value.op("->>")("type") == "file",
+#     #                 slot_value.op("->")("file_formats").op("?|")(
+#     #                     cast(list(extensions), ARRAY(TEXT))
+#     #                 )
+#     #             )
+#     #         )
+#     #     )
+#     # if operator == "and":
+#     #     for ext in extensions:
+#     #         slot = func.jsonb_array_elements(
+#     #             ToolGeneric.input_slots
+#     #         ).table_valued("value").alias(f"slot_{ext}")
+#     #
+#     #         slot_value = cast(slot.c.value, JSONB)
+#     #
+#     #         query = query.where(
+#     #             exists(
+#     #                 select(1)
+#     #                 .select_from(slot)
+#     #                 .where(
+#     #                     # optional type filter
+#     #                     # slot_value.op("->>")("type") == "data_collection_input",
+#     #
+#     #                     slot_value.op("->")("file_formats").op("?")(ext)
+#     #                 )
+#     #             )
+#     #         )
+#
+#     logger.debug(
+#         f"Executing query: {query.compile(compile_kwargs={'literal_binds': True})}"
+#     )
+#     result = await db.execute(query)
+#     tools = result.scalars().all()
+#     return [ToolOut.from_orm(tool) for tool in tools]

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tool_registry.db import get_db
 from tool_registry.models import HarvestSource
+from tool_registry.security import validate_token
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def is_allowed_source(url: str) -> bool:
 )
 async def create_source(
     request: HarvestSourceCreate,
+    user_info=Depends(validate_token),
     session: AsyncSession = Depends(get_db),
 ):
     url = str(request.url)

@@ -42,3 +42,7 @@ Setup `config/.secrets.toml`
 make install
 make run
 ```
+
+# Register a tool
+
+For registering a tool please take a look at [REGISTER_TOOL.md](REGISTER_TOOL.md)

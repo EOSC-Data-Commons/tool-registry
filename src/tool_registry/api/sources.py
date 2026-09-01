@@ -18,7 +18,13 @@ router = APIRouter()
 
 class HarvestSourceCreate(BaseModel):
     url: HttpUrl
-    schedule: str | None = None
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "url": "https://zenodo.org/record/1234567",
+            }
+        }
+    )
 
 
 class HarvestSourceResponse(BaseModel):

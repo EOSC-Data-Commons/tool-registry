@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 service_config = load_service_config()
 API_PREFIX = service_config.api_prefix
 VERSION = get_app_version()
-logger.info(
-    f"Starting Tool Registry Service - Version: {VERSION} with db configuration: {load_db_config()} and service configuration: {service_config}"
+logger.info(f"Starting Tool Registry Service - Version: {VERSION}")
+logger.debug(
+    f"With db configuration: {load_db_config()} and service configuration: {service_config}"
 )
 security.init_nonce_db()
-ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
-logger.info(f"Admin token: {ADMIN_TOKEN}")
+# ADMIN_TOKEN = security.generate_admin_token(service_config.admin_auth_key)
+# logger.info(f"Admin token: {ADMIN_TOKEN}")
 
 
 @asynccontextmanager
@@ -35,11 +36,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     lifespan=lifespan,
 )
-# app = FastAPI(
-#     # title=project_details["title"],
-#     # description=project_details["description"],
-#     # version=f"{project_details['version']} (Build Date: {build_date})",
-# )
 
 app.include_router(root.router, prefix=API_PREFIX)
 app.include_router(tools.router, tags=["Tools"], prefix=f"{API_PREFIX}/tools")

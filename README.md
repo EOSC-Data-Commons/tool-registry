@@ -5,7 +5,7 @@
 
 # Roadmap
 
-## 🚧 Phase 1 — Core Tool Management (Current)
+## 🚧 Phase 1 — Core Tool Management (Done)
 
 - [x] Project scaffolding and initial architecture
 - [x] API endpoint to query by file format extension
@@ -15,6 +15,14 @@
 - [x] API endpoint to update/remove existing tools
 - [x] API documentation (Swagger/OpenAPI)
 - [x] Deployment to Warehouse
+
+## 🚧 Phase 2 — Advanced Features (Current)
+- [x] Refactor get endpoint to match new schema from toolmeta-harvester
+- [x] Change way users publish tools from submitting a tool to submitting a URL to harvest
+- [x] Store harvest URLs to be consumed by toolmeta-harvester/airflow
+- [ ] Add new query parameters to GET endpoint to filter by
+- [ ] Use embeddings to search tools by description
+
 
 # Installation and Usage
 

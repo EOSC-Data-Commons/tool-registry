@@ -3,7 +3,8 @@ from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, exists, literal, select
+from sqlalchemy import func, exists, literal, select, or_, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -72,29 +73,6 @@ class ToolOut(BaseModel):
     date_modified: datetime | None = None
 
 
-# class ToolOut(BaseModel):
-#     id: int
-#     uri: str
-#     location: str
-#     name: str
-#     description: Optional[str]
-#     license: Optional[str]
-#     keywords: Optional[list[str]]
-#     tags: Optional[list[str]]
-#     version: Optional[str]
-#     types: Optional[list[str]]
-#     input_file_formats: Optional[list[str]]
-#     output_file_formats: Optional[list[str]]
-#     input_file_descriptions: Optional[list[str]]
-#     output_file_descriptions: Optional[list[str]]
-#     input_slots: Optional[list[dict]]
-#     output_slots: Optional[list[dict]]
-#     created_by: str
-#
-#     class Config:
-#         from_attributes = True
-
-
 class ToolOutExt(ToolOut):
     raw_definition: Optional[dict]
     raw_metadata: Optional[dict]
@@ -103,75 +81,13 @@ class ToolOutExt(ToolOut):
     metadata_type: Optional[str]
     created_at: datetime
     updated_at: Optional[datetime]
-    # created_by: str
-
-
-class ToolCreate(BaseModel):
-    uri: str
-    name: str
-    version: str
-    location: Optional[str] = ""
-    license: Optional[str] = ""
-    description: str
-    keywords: Optional[list[str]] = []
-    tags: Optional[list[str]] = []
-    types: Optional[list[str]]
-    input_file_formats: Optional[List[str]] = []
-    output_file_formats: Optional[List[str]] = []
-    input_file_descriptions: Optional[List[str]] = []
-    output_file_descriptions: Optional[List[str]] = []
-    input_slots: Optional[List[dict]] = []
-    output_slots: Optional[List[dict]] = []
-    raw_definition: Optional[dict] = {}
-    raw_metadata: Optional[dict] = {}
-    metadata_schema: Optional[dict] = {}
-    metadata_version: Optional[str] = ""
-    metadata_type: Optional[str] = ""
-
-    @field_validator("input_file_formats", "output_file_formats", mode="before")
-    @classmethod
-    def normalize_formats(cls, v):
-        if not v:
-            return []
-        return [fmt.lstrip(".").lower() for fmt in v if fmt]
-
-
-class ToolUpdate(BaseModel):
-    uri: Optional[str] = None
-    location: Optional[str] = None
-    name: Optional[str] = None
-    version: Optional[str] = None
-    description: Optional[str] = None
-    keywords: Optional[list[str]] = None
-    license: Optional[str] = None
-    tags: Optional[list[str]] = None
-    types: Optional[list[str]] = None
-    input_file_formats: Optional[List[str]] = None
-    output_file_formats: Optional[List[str]] = None
-    input_file_descriptions: Optional[List[str]] = None
-    output_file_descriptions: Optional[List[str]] = None
-    input_slots: Optional[List[dict]] = None
-    output_slots: Optional[List[dict]] = None
-    raw_definition: Optional[dict] = None
-    raw_metadata: Optional[dict] = None
-    metadata_schema: Optional[dict] = None
-    metadata_version: Optional[str] = None
-    metadata_type: Optional[str] = None
-
-    @field_validator("input_file_formats", "output_file_formats", mode="before")
-    @classmethod
-    def normalize_formats(cls, v):
-        if v is None:
-            return None
-        return [fmt.lstrip(".").lower() for fmt in v if fmt]
-
-    model_config = {"extra": "forbid"}
 
 
 class ToolSearchParams(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     source: Optional[str] = None
+    type: Optional[str] = None
     keyword: Optional[str] = None
     quality_score: Optional[float] = None
     limit: int = 100
@@ -210,6 +126,37 @@ async def get_tool_by_field(
     return result.scalars().first()
 
 
+def jsonb_array_object_matches(
+    column,
+    value: str,
+    keys: tuple[str, ...] = (
+        "name",
+        "alternate_name",
+        "id",
+        "identifier",
+        "url",
+    ),
+):
+    element = func.jsonb_array_elements(column).table_valued("value").alias("element")
+
+    json_value = cast(element.c.value, JSONB)
+    pattern = f"%{value}%"
+
+    return exists(
+        select(1)
+        .select_from(element)
+        .where(or_(*[json_value[key].astext.ilike(pattern) for key in keys]))
+    )
+
+
+def text_array_matches(column, value: str):
+    element = func.unnest(column).alias("element")
+
+    return exists(
+        select(1).select_from(element).where(element.column.ilike(f"%{value}%"))
+    )
+
+
 async def search_tools_in_db(
     search: ToolSearchParams, db: AsyncSession
 ) -> list[ToolMetadata]:
@@ -221,6 +168,28 @@ async def search_tools_in_db(
     if search.description:
         logger.debug(f"Searching for tools with description like: {search.description}")
         query = query.where(ToolMetadata.description.ilike(f"%{search.description}%"))
+    if search.type:
+        logger.debug(f"Searching for tools with type like: {search.type}")
+        query = select(ToolMetadata).where(
+            or_(
+                text_array_matches(
+                    ToolMetadata.types,
+                    search.type,
+                ),
+                jsonb_array_object_matches(
+                    ToolMetadata.programming_languages,
+                    search.type,
+                ),
+                jsonb_array_object_matches(
+                    ToolMetadata.runtime_platforms,
+                    search.type,
+                ),
+                jsonb_array_object_matches(
+                    ToolMetadata.software_types,
+                    search.type,
+                ),
+            )
+        )
     if search.keyword:
         pattern = f"%{search.keyword}%"
         unnested = func.unnest(ToolMetadata.keywords).alias("keyword")
@@ -267,6 +236,11 @@ async def search_tools(
         description="Partial match for tool description.",
         example="alignment",
     ),
+    type: Optional[str] = Query(
+        None,
+        description="Filter tools by type (e.g., 'galaxy', 'scipion', 'ComputationalWorkflow').",
+        example="galaxy",
+    ),
     keyword: Optional[str] = Query(
         None,
         description="Filter tools by keyword.",
@@ -302,6 +276,7 @@ async def search_tools(
         title=title,
         description=description,
         keyword=keyword,
+        type=type,
         source=source,
         quality_score=quality_score,
         limit=limit,
@@ -351,7 +326,11 @@ async def search_tools(
     return [ToolOut.from_orm(tool) for tool in tools]
 
 
-@router.get("/sources", response_model=list[str])
+@router.get(
+    "/sources",
+    description="Get a list of unique source domains from the tools.",
+    response_model=list[str],
+)
 async def get_source_domains(
     db: AsyncSession = Depends(get_db),
 ) -> list[str]:

@@ -43,6 +43,8 @@ ALLOWED_SOURCE_DOMAINS = {
     "github.com",
     "bio.tools",
     "workflowhub.eu",
+    "gitlab.com",
+    "gitlab.ethz.ch",
 }
 
 

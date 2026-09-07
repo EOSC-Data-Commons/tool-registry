@@ -4,6 +4,7 @@ Tools should first be published in one of the supported public repositories:
 
 * [WorkflowHub](https://workflowhub.eu/)
 * [GitHub](https://github.com/)
+* GitLab.*
 * [Zenodo](https://zenodo.org/)
 * [bio.tools](https://bio.tools/)
 

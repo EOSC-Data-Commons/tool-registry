@@ -1,5 +1,6 @@
 import logging
 from pydantic import BaseModel, field_validator, Field
+from typing import Annotated, Literal
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +11,18 @@ from typing import Any
 from uuid import UUID
 from pydantic import ConfigDict
 
-from toolmeta_harvester.db.models import ToolMetadata
+from toolmeta_harvester.db.models import ToolEmbedding, ToolMetadata
 from tool_registry.db import get_db
+from sqlalchemy.orm import Session
+
+from toolmeta_harvester.tasks.embeddings import embed
+from toolmeta_harvester.config import egi_llm_api_key
+
+
+EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
+EMBEDDING_TYPE = "description"
+EMBEDDING_API = "https://llm.ai.egi.eu/embeddings"
+EGI_LLM_API_KEY = egi_llm_api_key()
 
 
 logger = logging.getLogger(__name__)
@@ -84,7 +95,7 @@ class ToolOutExt(ToolOut):
 
 
 class ToolSearchParams(BaseModel):
-    title: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
     source: Optional[str] = None
     type: Optional[str] = None
@@ -104,10 +115,28 @@ class MatchOptions(BaseModel):
     operator: Optional[Literal["or", "and"]] = "or"
 
 
-class ToolMatchRequest(BaseModel):
-    type: Literal["file"]  # extensible later
-    inputs: List[FileInput] = Field(..., min_items=1)
-    options: Optional[MatchOptions] = None
+# class ToolMatchRequest(BaseModel):
+#     type: Literal["file"]  # extensible later
+#     inputs: List[FileInput] = Field(..., min_items=1)
+#     options: Optional[MatchOptions] = None
+
+
+class FileToolMatchRequest(BaseModel):
+    type: Literal["file"]
+    inputs: list[FileInput] = Field(..., min_length=1)
+    options: MatchOptions | None = None
+
+
+class SemanticToolMatchRequest(BaseModel):
+    type: Literal["semantic"]
+    query: str = Field(..., min_length=2)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+ToolMatchRequest = Annotated[
+    FileToolMatchRequest | SemanticToolMatchRequest,
+    Field(discriminator="type"),
+]
 
 
 async def get_tool_by_field(
@@ -162,9 +191,9 @@ async def search_tools_in_db(
 ) -> list[ToolMetadata]:
     query = select(ToolMetadata)
     logger.debug(f"Starting tool search with parameters: {search.model_dump()}")
-    if search.title:
-        logger.debug(f"Searching for tools with name like: {search.title}")
-        query = query.where(ToolMetadata.title.ilike(f"%{search.title}%"))
+    if search.name:
+        logger.debug(f"Searching for tools with name like: {search.name}")
+        query = query.where(ToolMetadata.title.ilike(f"%{search.name}%"))
     if search.description:
         logger.debug(f"Searching for tools with description like: {search.description}")
         query = query.where(ToolMetadata.description.ilike(f"%{search.description}%"))
@@ -226,7 +255,7 @@ async def search_tools_in_db(
 async def search_tools(
     request: Request,
     response: Response,
-    title: Optional[str] = Query(
+    name: Optional[str] = Query(
         None,
         description="Partial match for tool title/name.",
         example="genomic",
@@ -273,7 +302,7 @@ async def search_tools(
     Search for tools based on provided criteria.
     """
     search = ToolSearchParams(
-        title=title,
+        name=name,
         description=description,
         keyword=keyword,
         type=type,
@@ -375,3 +404,122 @@ async def get_tools_by_identifier(
         raise HTTPException(status_code=404, detail="Tool not found")
     logger.debug(f"Retrieved tool: {tool.title} (ID: {tool.id})")
     return ToolOut.from_orm(tool)
+
+
+def match_tools_by_file(match, db):
+    # TODO
+    pass
+
+
+def match_tools_semantically(match, db):
+    query = match.query
+    limit = match.limit
+    session = db
+    query_vector = embed(
+        [query],
+        api_key=EGI_LLM_API_KEY,
+        api_url=EMBEDDING_API,
+        model=EMBEDDING_MODEL,
+        prefix="search_query: ",
+    )[0]
+
+    distance = ToolEmbedding.vector.cosine_distance(query_vector)
+
+    stmt = (
+        select(ToolMetadata)
+        .join(
+            ToolEmbedding,
+            ToolEmbedding.tool_id == ToolMetadata.id,
+        )
+        .where(
+            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+        )
+        .order_by(distance)
+        .limit(limit)
+    )
+
+    return list(session.scalars(stmt).all())
+
+
+@router.post(
+    "/match",
+    response_model=list[ToolOut],
+    description="Semantically match tools using an AI embedding search.",
+    tags=["Tools"],
+)
+async def match_tools_post(
+    match: ToolMatchRequest,
+    db: AsyncSession = Depends(get_db),
+) -> list[ToolMetadata]:
+    logger.debug(f"Received tool match request with body: {match}")
+    match match.type:
+        case "file":
+            return await match_tools_by_file(match, db)
+        case "semantic":
+            return await match_tools_semantically(match, db)
+
+
+# ---------
+# @router.post(
+#     "/match",
+#     response_model=list[ToolOut],
+#     description="Match tools given complex input criteria.",
+#     tags=["Tools"],
+# )
+# async def match_tools_post(
+#     match: ToolMatchRequest,
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     logger.debug(f"Received tool match request with body: {match}")
+#     if match.type != "file":
+#         raise HTTPException(status_code=400, detail="Unsupported match type")
+#     extensions = set()
+#     if match.options and match.options.operator:
+#         operator = match.options.operator.lower()
+#
+#     for file in match.inputs:
+#         mime_type = file.mime_type
+#         file_extensions = mimedb.get_extensions(mime_type)
+#         if not file_extensions:
+#             file_extension = (
+#                 file.name.split(".")[-1].lower() if "." in file.name else None
+#             )
+#             if file_extension:
+#                 extensions.add(file_extension)
+#         else:
+#             extensions.update(file_extensions)
+#
+#     logger.debug(
+#         f"Extracted file extensions for matching: {extensions} with operator: {operator}"
+#     )
+#
+#     query = select(ToolGeneric)
+#     extensions_list = list(extensions)
+#
+#     if not extensions_list:
+#         return db.execute(query).scalars().all()
+#
+#     if operator == "or":
+#         query = query.where(
+#             ToolGeneric.input_file_formats.op("&&")(
+#                 cast(extensions_list, ARRAY(String))
+#             )
+#         )
+#
+#     elif operator == "and":
+#         query = query.where(
+#             ToolGeneric.input_file_formats.op("@>")(
+#                 cast(extensions_list, ARRAY(String))
+#             )
+#         )
+#
+#     else:
+#         raise ValueError(f"Unsupported operator: {operator}")
+#
+#     logger.debug(
+#         f"Executing query: {query.compile(compile_kwargs={'literal_binds': True})}"
+#     )
+#     result = await db.execute(query)
+#     tools = result.scalars().all()
+#     return [ToolOut.from_orm(tool) for tool in tools]

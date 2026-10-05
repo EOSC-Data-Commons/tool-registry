@@ -13,10 +13,10 @@ from pydantic import ConfigDict
 
 from toolmeta_harvester.db.models import ToolEmbedding, ToolMetadata
 from tool_registry.db import get_db
-from sqlalchemy.orm import Session
+# from sqlalchemy.orm import Session
 
-from toolmeta_harvester.tasks.embeddings import embed
-from toolmeta_harvester.config import egi_llm_api_key
+from toolmeta_harvester.tasks.embedding import embed
+from tool_registry.config import egi_llm_api_key
 
 
 EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
@@ -406,15 +406,16 @@ async def get_tools_by_identifier(
     return ToolOut.from_orm(tool)
 
 
-def match_tools_by_file(match, db):
+async def match_tools_by_file(match, db):
     # TODO
     pass
 
 
-def match_tools_semantically(match, db):
+async def match_tools_semantically(match, db):
     query = match.query
     limit = match.limit
     session = db
+    logger.info(f"API KEY - {EGI_LLM_API_KEY}")
     query_vector = embed(
         [query],
         api_key=EGI_LLM_API_KEY,
@@ -439,7 +440,8 @@ def match_tools_semantically(match, db):
         .limit(limit)
     )
 
-    return list(session.scalars(stmt).all())
+    result = await session.scalars(stmt)
+    return list(result.all())
 
 
 @router.post(

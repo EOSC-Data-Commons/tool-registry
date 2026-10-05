@@ -18,3 +18,6 @@ api_prefix = "/api/v2"
 admin_auth_key = "changeme"
 egi_env = "development" # Set to "production" or "development" or "demo"
 
+[egi]
+llm_api_key="your_key"
+

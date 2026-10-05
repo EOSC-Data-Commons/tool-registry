@@ -5,7 +5,8 @@ import tomllib
 
 settings = Dynaconf(
     envvar_prefix="TOOL_REGISTRY",
-    settings_files=["config/config.toml", "config/.secrets.toml"])
+    settings_files=["config/config.toml", "config/.secrets.toml"],
+)
 
 # Environment variable overrides:
 # export TOOL_REGISTRY_DATABASE__HOST=localhost
@@ -45,6 +46,7 @@ def get_app_version() -> str:
         logging.error(f"Failed to read version from pyproject.toml: {e}")
         return "unknown"
 
+
 def init_logging() -> None:
     log_level = settings.logging.log_level.upper()
 
@@ -76,3 +78,8 @@ def load_db_config() -> dict:
         password=db.password,
         name=db.name,
     )
+
+
+def egi_llm_api_key() -> str:
+    egi = settings.egi
+    return egi["llm_api_key"]

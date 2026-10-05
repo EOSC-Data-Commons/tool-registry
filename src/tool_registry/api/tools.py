@@ -1,7 +1,18 @@
 import logging
-from pydantic import BaseModel, field_validator, Field
-from typing import Optional, List, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
+from pathlib import Path as FilePath
+from pydantic import BaseModel, Field
+from typing import Annotated, Literal
+from typing import Optional
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Path,
+    Request,
+    Response,
+    Body,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, exists, literal, select, or_, cast
 from sqlalchemy.dialects.postgresql import JSONB
@@ -10,8 +21,18 @@ from typing import Any
 from uuid import UUID
 from pydantic import ConfigDict
 
-from toolmeta_harvester.db.models import ToolMetadata
+from toolmeta_harvester.db.models import ToolEmbedding, ToolMetadata
 from tool_registry.db import get_db
+# from sqlalchemy.orm import Session
+
+from toolmeta_harvester.tasks.embedding import embed
+from tool_registry.config import egi_llm_api_key
+
+
+EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
+EMBEDDING_TYPE = "description"
+EMBEDDING_API = "https://llm.ai.egi.eu/embeddings"
+EGI_LLM_API_KEY = egi_llm_api_key()
 
 
 logger = logging.getLogger(__name__)
@@ -84,7 +105,7 @@ class ToolOutExt(ToolOut):
 
 
 class ToolSearchParams(BaseModel):
-    title: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
     source: Optional[str] = None
     type: Optional[str] = None
@@ -104,10 +125,56 @@ class MatchOptions(BaseModel):
     operator: Optional[Literal["or", "and"]] = "or"
 
 
-class ToolMatchRequest(BaseModel):
-    type: Literal["file"]  # extensible later
-    inputs: List[FileInput] = Field(..., min_items=1)
-    options: Optional[MatchOptions] = None
+class FileToolMatchRequest(BaseModel):
+    type: Literal["file"]
+    inputs: list[FileInput] = Field(..., min_length=1)
+    options: MatchOptions | None = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "file",
+                    "inputs": [
+                        {
+                            "name": "foo.json",
+                            "mime_type": "application/json",
+                        },
+                        {
+                            "name": "bar.csv",
+                            "mime_type": "text/csv",
+                        },
+                    ],
+                    "options": {
+                        "operator": "or",
+                    },
+                }
+            ]
+        }
+    )
+
+
+class SemanticToolMatchRequest(BaseModel):
+    type: Literal["semantic"]
+    query: str = Field(..., min_length=2)
+    limit: int = Field(default=20, ge=1, le=100)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "semantic",
+                    "query": "software for molecular docking of proteins",
+                    "limit": 10,
+                }
+            ]
+        }
+    )
+
+
+ToolMatchRequest = Annotated[
+    FileToolMatchRequest | SemanticToolMatchRequest,
+    Field(discriminator="type"),
+]
 
 
 async def get_tool_by_field(
@@ -162,9 +229,9 @@ async def search_tools_in_db(
 ) -> list[ToolMetadata]:
     query = select(ToolMetadata)
     logger.debug(f"Starting tool search with parameters: {search.model_dump()}")
-    if search.title:
-        logger.debug(f"Searching for tools with name like: {search.title}")
-        query = query.where(ToolMetadata.title.ilike(f"%{search.title}%"))
+    if search.name:
+        logger.debug(f"Searching for tools with name like: {search.name}")
+        query = query.where(ToolMetadata.title.ilike(f"%{search.name}%"))
     if search.description:
         logger.debug(f"Searching for tools with description like: {search.description}")
         query = query.where(ToolMetadata.description.ilike(f"%{search.description}%"))
@@ -226,7 +293,7 @@ async def search_tools_in_db(
 async def search_tools(
     request: Request,
     response: Response,
-    title: Optional[str] = Query(
+    name: Optional[str] = Query(
         None,
         description="Partial match for tool title/name.",
         example="genomic",
@@ -273,7 +340,7 @@ async def search_tools(
     Search for tools based on provided criteria.
     """
     search = ToolSearchParams(
-        title=title,
+        name=name,
         description=description,
         keyword=keyword,
         type=type,
@@ -375,3 +442,162 @@ async def get_tools_by_identifier(
         raise HTTPException(status_code=404, detail="Tool not found")
     logger.debug(f"Retrieved tool: {tool.title} (ID: {tool.id})")
     return ToolOut.from_orm(tool)
+
+
+def file_input_matches(
+    requested: FileInput,
+    tool_input: dict,
+) -> bool:
+    """Return True if a requested file matches a tool input."""
+
+    # Prefer MIME type matching.
+    if (
+        requested.mime_type
+        and tool_input.get("encoding_format")
+        and requested.mime_type.lower() == tool_input["encoding_format"].lower()
+    ):
+        return True
+
+    # Fall back to filename extension.
+    requested_ext = FilePath(requested.name).suffix.lower()
+
+    tool_id = tool_input.get("id", "")
+    tool_ext = FilePath(tool_id).suffix.lower()
+
+    if requested_ext and tool_ext:
+        return requested_ext == tool_ext
+
+    return False
+
+
+def tool_matches_files(
+    requested_inputs: list[FileInput],
+    tool_inputs: list[dict],
+    operator: str = "or",
+) -> bool:
+    """Match requested files against the declared inputs of a tool."""
+
+    if not tool_inputs:
+        return False
+
+    matches = [
+        any(file_input_matches(requested, tool_input) for tool_input in tool_inputs)
+        for requested in requested_inputs
+    ]
+
+    if operator == "and":
+        return all(matches)
+
+    return any(matches)
+
+
+async def match_tools_by_file(
+    match: FileToolMatchRequest,
+    db: AsyncSession,
+) -> list[ToolMetadata]:
+    stmt = select(ToolMetadata).where(ToolMetadata.inputs.is_not(None))
+
+    result = await db.scalars(stmt)
+
+    tools = result.all()
+
+    operator = match.options.operator if match.options else "or"
+
+    return [
+        tool
+        for tool in tools
+        if tool_matches_files(
+            match.inputs,
+            tool.inputs,
+            operator,
+        )
+    ]
+
+
+async def match_tools_semantically(match, db):
+    query = match.query
+    limit = match.limit
+    session = db
+    query_vector = embed(
+        [query],
+        api_key=EGI_LLM_API_KEY,
+        api_url=EMBEDDING_API,
+        model=EMBEDDING_MODEL,
+        prefix="search_query: ",
+    )[0]
+
+    distance = ToolEmbedding.vector.cosine_distance(query_vector)
+
+    stmt = (
+        select(ToolMetadata)
+        .join(
+            ToolEmbedding,
+            ToolEmbedding.tool_id == ToolMetadata.id,
+        )
+        .where(
+            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+        )
+        .order_by(distance)
+        .limit(limit)
+    )
+
+    result = await session.scalars(stmt)
+    return list(result.all())
+
+
+@router.post(
+    "/match",
+    response_model=list[ToolOut],
+    description="Semantically match tools using an AI embedding search.",
+    tags=["Tools"],
+)
+async def match_tools_post(
+    match: Annotated[
+        ToolMatchRequest,
+        Body(
+            openapi_examples={
+                "file": {
+                    "summary": "File matching",
+                    "description": "Match tools by supported input file types.",
+                    "value": {
+                        "type": "file",
+                        "inputs": [
+                            {
+                                "name": "foo.json",
+                                "mime_type": "application/json",
+                            },
+                            {
+                                "name": "bar.csv",
+                                "mime_type": "text/csv",
+                            },
+                        ],
+                        "options": {
+                            "operator": "or",
+                        },
+                    },
+                },
+                "semantic": {
+                    "summary": "Semantic matching",
+                    "description": "Match tools using semantic similarity.",
+                    "value": {
+                        "type": "semantic",
+                        "query": "software for molecular docking of proteins",
+                        "limit": 10,
+                    },
+                },
+            },
+        ),
+    ],
+    db: AsyncSession = Depends(get_db),
+) -> list[ToolMetadata]:
+    # async def match_tools_post(
+    #     match: ToolMatchRequest,
+    #     db: AsyncSession = Depends(get_db),
+    # ) -> list[ToolMetadata]:
+    logger.debug(f"Received tool match request with body: {match}")
+    match match.type:
+        case "file":
+            return await match_tools_by_file(match, db)
+        case "semantic":
+            return await match_tools_semantically(match, db)

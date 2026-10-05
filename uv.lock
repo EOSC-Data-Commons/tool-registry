@@ -1544,14 +1544,14 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.3" },
     { name = "pyjwt", specifier = ">=2.11.0" },
     { name = "requests", specifier = ">=2.32.5" },
-    { name = "toolmeta-harvester", git = "https://github.com/EOSC-Data-Commons/toolmeta-harvester.git?rev=feature%2Fadd_embedding_flow" },
+    { name = "toolmeta-harvester", git = "https://github.com/EOSC-Data-Commons/toolmeta-harvester.git?rev=main" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
 
 [[package]]
 name = "toolmeta-harvester"
 version = "1.1.0a1"
-source = { git = "https://github.com/EOSC-Data-Commons/toolmeta-harvester.git?rev=feature%2Fadd_embedding_flow#efb4b9762e2b2fcd1fa4ebce8f9c1cab13186e42" }
+source = { git = "https://github.com/EOSC-Data-Commons/toolmeta-harvester.git?rev=main#b99ce152a97577f280adda0ee2e858d195833804" }
 dependencies = [
     { name = "alembic" },
     { name = "beautifulsoup4" },

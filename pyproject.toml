@@ -13,8 +13,7 @@ dependencies = [
     "pyjwt>=2.11.0",
     "requests>=2.32.5",
     # "toolmeta-models @ git+https://github.com/EOSC-Data-Commons/toolmeta-models.git@v0.2.5",
-    # "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@dev",
-    "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@feature/add_embedding_flow",
+    "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@main",
     "mimedb @ git+https://github.com/Dans-labs/mimedb.git@v0.1.2",
     "uvicorn>=0.40.0",
 ]

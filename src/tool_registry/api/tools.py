@@ -116,22 +116,50 @@ class MatchOptions(BaseModel):
     operator: Optional[Literal["or", "and"]] = "or"
 
 
-# class ToolMatchRequest(BaseModel):
-#     type: Literal["file"]  # extensible later
-#     inputs: List[FileInput] = Field(..., min_items=1)
-#     options: Optional[MatchOptions] = None
-
-
 class FileToolMatchRequest(BaseModel):
     type: Literal["file"]
     inputs: list[FileInput] = Field(..., min_length=1)
     options: MatchOptions | None = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "file",
+                    "inputs": [
+                        {
+                            "name": "foo.json",
+                            "mime_type": "application/json",
+                        },
+                        {
+                            "name": "bar.csv",
+                            "mime_type": "text/csv",
+                        },
+                    ],
+                    "options": {
+                        "operator": "or",
+                    },
+                }
+            ]
+        }
+    )
 
 
 class SemanticToolMatchRequest(BaseModel):
     type: Literal["semantic"]
     query: str = Field(..., min_length=2)
     limit: int = Field(default=20, ge=1, le=100)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "semantic",
+                    "query": "software for molecular docking of proteins",
+                    "limit": 10,
+                }
+            ]
+        }
+    )
 
 
 ToolMatchRequest = Annotated[
@@ -525,68 +553,3 @@ async def match_tools_post(
             return await match_tools_by_file(match, db)
         case "semantic":
             return await match_tools_semantically(match, db)
-
-
-# ---------
-# @router.post(
-#     "/match",
-#     response_model=list[ToolOut],
-#     description="Match tools given complex input criteria.",
-#     tags=["Tools"],
-# )
-# async def match_tools_post(
-#     match: ToolMatchRequest,
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     logger.debug(f"Received tool match request with body: {match}")
-#     if match.type != "file":
-#         raise HTTPException(status_code=400, detail="Unsupported match type")
-#     extensions = set()
-#     if match.options and match.options.operator:
-#         operator = match.options.operator.lower()
-#
-#     for file in match.inputs:
-#         mime_type = file.mime_type
-#         file_extensions = mimedb.get_extensions(mime_type)
-#         if not file_extensions:
-#             file_extension = (
-#                 file.name.split(".")[-1].lower() if "." in file.name else None
-#             )
-#             if file_extension:
-#                 extensions.add(file_extension)
-#         else:
-#             extensions.update(file_extensions)
-#
-#     logger.debug(
-#         f"Extracted file extensions for matching: {extensions} with operator: {operator}"
-#     )
-#
-#     query = select(ToolGeneric)
-#     extensions_list = list(extensions)
-#
-#     if not extensions_list:
-#         return db.execute(query).scalars().all()
-#
-#     if operator == "or":
-#         query = query.where(
-#             ToolGeneric.input_file_formats.op("&&")(
-#                 cast(extensions_list, ARRAY(String))
-#             )
-#         )
-#
-#     elif operator == "and":
-#         query = query.where(
-#             ToolGeneric.input_file_formats.op("@>")(
-#                 cast(extensions_list, ARRAY(String))
-#             )
-#         )
-#
-#     else:
-#         raise ValueError(f"Unsupported operator: {operator}")
-#
-#     logger.debug(
-#         f"Executing query: {query.compile(compile_kwargs={'literal_binds': True})}"
-#     )
-#     result = await db.execute(query)
-#     tools = result.scalars().all()
-#     return [ToolOut.from_orm(tool) for tool in tools]

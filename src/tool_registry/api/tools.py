@@ -1,9 +1,18 @@
 import logging
 from pathlib import Path as FilePath
-from pydantic import BaseModel, field_validator, Field
+from pydantic import BaseModel, Field
 from typing import Annotated, Literal
-from typing import Optional, List, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Response
+from typing import Optional
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Path,
+    Request,
+    Response,
+    Body,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, exists, literal, select, or_, cast
 from sqlalchemy.dialects.postgresql import JSONB
@@ -544,9 +553,48 @@ async def match_tools_semantically(match, db):
     tags=["Tools"],
 )
 async def match_tools_post(
-    match: ToolMatchRequest,
+    match: Annotated[
+        ToolMatchRequest,
+        Body(
+            openapi_examples={
+                "file": {
+                    "summary": "File matching",
+                    "description": "Match tools by supported input file types.",
+                    "value": {
+                        "type": "file",
+                        "inputs": [
+                            {
+                                "name": "foo.json",
+                                "mime_type": "application/json",
+                            },
+                            {
+                                "name": "bar.csv",
+                                "mime_type": "text/csv",
+                            },
+                        ],
+                        "options": {
+                            "operator": "or",
+                        },
+                    },
+                },
+                "semantic": {
+                    "summary": "Semantic matching",
+                    "description": "Match tools using semantic similarity.",
+                    "value": {
+                        "type": "semantic",
+                        "query": "software for molecular docking of proteins",
+                        "limit": 10,
+                    },
+                },
+            },
+        ),
+    ],
     db: AsyncSession = Depends(get_db),
 ) -> list[ToolMetadata]:
+    # async def match_tools_post(
+    #     match: ToolMatchRequest,
+    #     db: AsyncSession = Depends(get_db),
+    # ) -> list[ToolMetadata]:
     logger.debug(f"Received tool match request with body: {match}")
     match match.type:
         case "file":

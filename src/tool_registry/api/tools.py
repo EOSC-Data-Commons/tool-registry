@@ -415,7 +415,6 @@ async def match_tools_semantically(match, db):
     query = match.query
     limit = match.limit
     session = db
-    logger.info(f"API KEY - {EGI_LLM_API_KEY}")
     query_vector = embed(
         [query],
         api_key=EGI_LLM_API_KEY,

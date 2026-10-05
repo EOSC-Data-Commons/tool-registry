@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path as FilePath
 from pydantic import BaseModel, field_validator, Field
 from typing import Annotated, Literal
 from typing import Optional, List, Literal
@@ -406,9 +407,74 @@ async def get_tools_by_identifier(
     return ToolOut.from_orm(tool)
 
 
-async def match_tools_by_file(match, db):
-    # TODO
-    pass
+def file_input_matches(
+    requested: FileInput,
+    tool_input: dict,
+) -> bool:
+    """Return True if a requested file matches a tool input."""
+
+    # Prefer MIME type matching.
+    if (
+        requested.mime_type
+        and tool_input.get("encoding_format")
+        and requested.mime_type.lower() == tool_input["encoding_format"].lower()
+    ):
+        return True
+
+    # Fall back to filename extension.
+    requested_ext = FilePath(requested.name).suffix.lower()
+
+    tool_id = tool_input.get("id", "")
+    tool_ext = FilePath(tool_id).suffix.lower()
+
+    if requested_ext and tool_ext:
+        return requested_ext == tool_ext
+
+    return False
+
+
+def tool_matches_files(
+    requested_inputs: list[FileInput],
+    tool_inputs: list[dict],
+    operator: str = "or",
+) -> bool:
+    """Match requested files against the declared inputs of a tool."""
+
+    if not tool_inputs:
+        return False
+
+    matches = [
+        any(file_input_matches(requested, tool_input) for tool_input in tool_inputs)
+        for requested in requested_inputs
+    ]
+
+    if operator == "and":
+        return all(matches)
+
+    return any(matches)
+
+
+async def match_tools_by_file(
+    match: FileToolMatchRequest,
+    db: AsyncSession,
+) -> list[ToolMetadata]:
+    stmt = select(ToolMetadata).where(ToolMetadata.inputs.is_not(None))
+
+    result = await db.scalars(stmt)
+
+    tools = result.all()
+
+    operator = match.options.operator if match.options else "or"
+
+    return [
+        tool
+        for tool in tools
+        if tool_matches_files(
+            match.inputs,
+            tool.inputs,
+            operator,
+        )
+    ]
 
 
 async def match_tools_semantically(match, db):

@@ -419,6 +419,137 @@ async def get_source_domains(
     return list(result.scalars().all())
 
 
+from typing import Any
+
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def term_key(value: Any) -> str | None:
+    """
+    Produce a stable key for deduplicating canonical term objects.
+    """
+    if isinstance(value, str):
+        return value
+
+    if not isinstance(value, dict):
+        return None
+
+    return (
+        value.get("id")
+        or value.get("identifier")
+        or value.get("url")
+        or value.get("name")
+    )
+
+
+def unique_terms(
+    values: list[Any],
+) -> list[Any]:
+    result = []
+    seen = set()
+
+    for value in values:
+        key = term_key(value)
+
+        if key is None:
+            continue
+
+        key = str(key)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(value)
+
+    return result
+
+
+def extract_type_values(value):
+    result = []
+
+    def visit(item):
+        if item is None:
+            return
+
+        if isinstance(item, str):
+            result.append(item.lower())
+            return
+
+        if isinstance(item, list):
+            for subitem in item:
+                visit(subitem)
+            return
+
+        if not isinstance(item, dict):
+            return
+
+        # Prefer explicit type information first.
+        if item.get("type"):
+            visit(item["type"])
+            return
+
+        for key in (
+            "name",
+            "id",
+            "identifier",
+            "url",
+        ):
+            extracted = item.get(key)
+
+            if extracted:
+                visit(extracted)
+                return
+
+    visit(value)
+
+    return result
+
+
+@router.get(
+    "/{identifier}/types",
+    description=(
+        "Retrieve all type and classification values associated with a single tool."
+    ),
+    tags=["Tools"],
+)
+async def get_tool_types_by_identifier(
+    identifier: str = Path(
+        ...,
+        description="The internal UUID of the tool.",
+        example="5f8d7c3e-9b1a-4f2e-8c3b-1a2b3c4d5e6f",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    tool = await get_tool_by_field(
+        "id",
+        identifier,
+        db,
+    )
+
+    if not tool:
+        raise HTTPException(
+            status_code=404,
+            detail="Tool not found",
+        )
+
+    values = []
+
+    for field in (
+        tool.types,
+        tool.runtime_platforms,
+        tool.programming_languages,
+        tool.software_types,
+        tool.software_requirements,
+        tool.consumes_data,
+        tool.produces_data,
+    ):
+        values.extend(extract_type_values(field))
+    return list(dict.fromkeys(values))
+
+
 @router.get(
     "/{identifier}",
     response_model=ToolOut,

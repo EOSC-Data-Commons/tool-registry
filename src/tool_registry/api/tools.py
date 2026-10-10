@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path as FilePath
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, model_validator
 from typing import Annotated, Literal
 from typing import Optional
 from fastapi import (
@@ -68,7 +68,8 @@ class ToolOut(BaseModel):
     keywords: list[str]
     authors: list[dict[str, Any]]
     organizations: list[dict[str, Any]]
-    types: list[str]
+    # types: list[str]
+    types: list[str] = Field(default_factory=list)
 
     programming_languages: list[dict[str, Any]]
     runtime_platforms: list[dict[str, Any]]
@@ -93,15 +94,35 @@ class ToolOut(BaseModel):
     date_published: datetime | None = None
     date_modified: datetime | None = None
 
+    @model_validator(mode="after")
+    def populate_categories(self, info: ValidationInfo):
+        if info.context and "types" in info.context:
+            self.types = info.context["types"]
+        return self
 
-class ToolOutExt(ToolOut):
-    raw_definition: Optional[dict]
-    raw_metadata: Optional[dict]
-    metadata_schema: Optional[dict]
-    metadata_version: Optional[str]
-    metadata_type: Optional[str]
-    created_at: datetime
-    updated_at: Optional[datetime]
+
+class ToolOutMin(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+
+    source_identifier: str | None = None
+    source_url: str | None = None
+
+    title: str | None = None
+    description: str | None = None
+    version: str | None = None
+    license: str | None = None
+    types: list[str] = Field(default_factory=list)
+
+    inputs: list[dict[str, Any]]
+    outputs: list[dict[str, Any]]
+
+    @model_validator(mode="after")
+    def populate_categories(self, info: ValidationInfo):
+        if info.context and "types" in info.context:
+            self.types = info.context["types"]
+        return self
 
 
 class ToolSearchParams(BaseModel):
@@ -175,6 +196,22 @@ ToolMatchRequest = Annotated[
     FileToolMatchRequest | SemanticToolMatchRequest,
     Field(discriminator="type"),
 ]
+
+
+def extract_all_types(tool: dict) -> list:
+    values = []
+
+    for field in (
+        tool.types,
+        tool.runtime_platforms,
+        tool.programming_languages,
+        tool.software_types,
+        tool.software_requirements,
+        tool.consumes_data,
+        tool.produces_data,
+    ):
+        values.extend(extract_type_values(field))
+    return list(dict.fromkeys(values))
 
 
 async def get_tool_by_field(
@@ -286,7 +323,7 @@ async def search_tools_in_db(
 
 @router.get(
     "/",
-    response_model=list[ToolOut],
+    response_model=list[ToolOutMin],
     tags=["Tools"],
     description="Search for tools given query parameters.",
 )
@@ -390,7 +427,14 @@ async def search_tools(
         response.headers["Pagination"] = "disabled"
 
     logger.debug(f"Found {len(tools)} tools matching search criteria.")
-    return [ToolOut.from_orm(tool) for tool in tools]
+    # return [ToolOutMin.from_orm(tool) for tool in tools]
+    return [
+        ToolOutMin.model_validate(
+            tool,
+            context={"types": extract_all_types(tool)},
+        )
+        for tool in tools
+    ]
 
 
 @router.get(
@@ -417,13 +461,6 @@ async def get_source_domains(
     result = await db.execute(query)
 
     return list(result.scalars().all())
-
-
-from typing import Any
-
-from fastapi import Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def term_key(value: Any) -> str | None:
@@ -509,7 +546,7 @@ def extract_type_values(value):
 
 
 @router.get(
-    "/{identifier}/types",
+    "/{identifier}/categories",
     description=(
         "Retrieve all type and classification values associated with a single tool."
     ),
@@ -535,19 +572,7 @@ async def get_tool_types_by_identifier(
             detail="Tool not found",
         )
 
-    values = []
-
-    for field in (
-        tool.types,
-        tool.runtime_platforms,
-        tool.programming_languages,
-        tool.software_types,
-        tool.software_requirements,
-        tool.consumes_data,
-        tool.produces_data,
-    ):
-        values.extend(extract_type_values(field))
-    return list(dict.fromkeys(values))
+    return extract_all_types(tool)
 
 
 @router.get(
@@ -572,7 +597,11 @@ async def get_tools_by_identifier(
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
     logger.debug(f"Retrieved tool: {tool.title} (ID: {tool.id})")
-    return ToolOut.from_orm(tool)
+    # return ToolOut.from_orm(tool)
+    return ToolOut.model_validate(
+        tool,
+        context={"types": extract_all_types(tool)},
+    )
 
 
 def file_input_matches(
@@ -679,7 +708,7 @@ async def match_tools_semantically(match, db):
 
 @router.post(
     "/match",
-    response_model=list[ToolOut],
+    response_model=list[ToolOutMin],
     description="Semantically match tools using an AI embedding search.",
     tags=["Tools"],
 )
@@ -721,14 +750,19 @@ async def match_tools_post(
         ),
     ],
     db: AsyncSession = Depends(get_db),
-) -> list[ToolMetadata]:
-    # async def match_tools_post(
-    #     match: ToolMatchRequest,
-    #     db: AsyncSession = Depends(get_db),
-    # ) -> list[ToolMetadata]:
+) -> list[ToolOutMin]:
     logger.debug(f"Received tool match request with body: {match}")
     match match.type:
         case "file":
-            return await match_tools_by_file(match, db)
+            tools = await match_tools_by_file(match, db)
         case "semantic":
-            return await match_tools_semantically(match, db)
+            tools = await match_tools_semantically(match, db)
+
+    # return [ToolOutMin.model_validate(tool) for tool in tools]
+    return [
+        ToolOutMin.model_validate(
+            tool,
+            context={"types": extract_all_types(tool)},
+        )
+        for tool in tools
+    ]

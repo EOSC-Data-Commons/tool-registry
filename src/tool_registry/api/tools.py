@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-cache = Cache("llm-cache")
+cache = Cache("cache/llm-cache")
 
 
 def cache_key(description: str) -> str:

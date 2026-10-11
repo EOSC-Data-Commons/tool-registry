@@ -16,5 +16,6 @@ dependencies = [
     "toolmeta-harvester @ git+https://github.com/EOSC-Data-Commons/toolmeta-harvester.git@main",
     "mimedb @ git+https://github.com/Dans-labs/mimedb.git@v0.1.2",
     "uvicorn>=0.40.0",
+    "diskcache>=5.6.3",
 ]
 

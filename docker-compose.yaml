@@ -1,6 +1,8 @@
 services:
   tool-registry:
     build: .
+    volumes:
+      - ./cache:/app/cache
 
     environment:
       TOOL_REGISTRY_DATABASE__HOST: ${TOOL_REGISTRY_DATABASE__HOST}

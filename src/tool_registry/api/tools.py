@@ -1,4 +1,8 @@
 import logging
+import asyncio
+import hashlib
+import json
+from diskcache import Cache
 from pathlib import Path as FilePath
 from pydantic import BaseModel, Field, ValidationInfo, model_validator
 from typing import Annotated, Literal
@@ -27,6 +31,7 @@ from tool_registry.db import get_db
 
 from toolmeta_harvester.tasks.embedding import embed
 from tool_registry.config import egi_llm_api_key
+from tool_registry import ai
 
 
 EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
@@ -37,6 +42,21 @@ EGI_LLM_API_KEY = egi_llm_api_key()
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+cache = Cache("cache/llm-cache")
+
+
+def cache_key(description: str) -> str:
+    data = json.dumps(
+        {
+            "description": description.strip(),
+            "model": ai.LLM_MODEL,
+            "prompt_version": ai.PROMPT_VERSION,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 class ToolOut(BaseModel):
@@ -192,8 +212,25 @@ class SemanticToolMatchRequest(BaseModel):
     )
 
 
+class DatasetToolMatchRequest(BaseModel):
+    type: Literal["dataset"]
+    description: str = Field(..., min_length=2)
+    limit: int = Field(default=20, ge=1, le=100)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "dataset",
+                    "description": "Different amino acids (AAs) may exert distinct effects on postprandial glucose and insulin concentrations. A quantitative comparison of the effects of AAs on glucose and insulin kinetics in humans is currently lacking. PubMed was queried to identify intervention studies reporting glucose and insulin concentrations after acute ingestion and/or intravenous infusion of AAs in healthy adults and those living with obesity and/or type 2 diabetes (T2DM). The systematic literature search identified 55 studies that examined the effects of L-leucine, L-isoleucine, L-alanine, L-glutamine, L-arginine, L-lysine, glycine, L-proline, L-phenylalanine, L-glutamate, branched-chain AAs (i.e., L-leucine, L-isoleucine, and L-valine), and multiple individual L-AAs on glucose and insulin concentrations. Oral ingestion of most individual AAs induced an insulin response but did not alter glucose concentrations in healthy participants. Specific AAs (i.e., leucine and isoleucine) co-ingested with glucose exerted a synergistic effect on the postprandial insulin response and attenuated the glucose response compared to glucose intake alone in healthy participants. Oral AA ingestion as well as intravenous AA infusion was able to stimulate an insulin response and decrease glucose concentrations in T2DM and obese individuals. The extracted information is publicly available and can serve multiple purposes such as computational modeling.",
+                    "limit": 10,
+                }
+            ]
+        }
+    )
+
+
 ToolMatchRequest = Annotated[
-    FileToolMatchRequest | SemanticToolMatchRequest,
+    FileToolMatchRequest | SemanticToolMatchRequest | DatasetToolMatchRequest,
     Field(discriminator="type"),
 ]
 
@@ -717,6 +754,51 @@ async def match_tools_semantically(match, db):
     return list(result.all())
 
 
+async def match_tools_by_dataset_description(match, db):
+    key = cache_key(match.description)
+
+    if (cached := cache.get(key)) is not None:
+        tool_query = cached
+    else:
+        tool_query = await ai.dataset_to_tool_query(
+            match.description,
+            api_key=EGI_LLM_API_KEY,
+        )
+        cache.set(cache_key(match.description), tool_query, expire=60 * 60 * 24 * 30)
+
+    logger.info(f"Generated tool query: {tool_query}")
+
+    query_vector = (
+        await asyncio.to_thread(
+            embed,
+            [tool_query],
+            api_key=EGI_LLM_API_KEY,
+            api_url=EMBEDDING_API,
+            model=EMBEDDING_MODEL,
+            prefix="search_query: ",
+        )
+    )[0]
+
+    distance = ToolEmbedding.vector.cosine_distance(query_vector)
+
+    stmt = (
+        select(ToolMetadata)
+        .join(
+            ToolEmbedding,
+            ToolEmbedding.tool_id == ToolMetadata.id,
+        )
+        .where(
+            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+        )
+        .order_by(distance)
+        .limit(match.limit)
+    )
+
+    result = await db.scalars(stmt)
+    return list(result.all())
+
+
 @router.post(
     "/match",
     response_model=list[ToolOutMin],
@@ -757,6 +839,15 @@ async def match_tools_post(
                         "limit": 10,
                     },
                 },
+                "dataset": {
+                    "summary": "Dataset matching",
+                    "description": "Match tool with a dataset description",
+                    "value": {
+                        "type": "dataset",
+                        "description": "Different amino acids (AAs) may exert distinct effects on postprandial glucose and insulin concentrations. A quantitative comparison of the effects of AAs on glucose and insulin kinetics in humans is currently lacking. PubMed was queried to identify intervention studies reporting glucose and insulin concentrations after acute ingestion and/or intravenous infusion of AAs in healthy adults and those living with obesity and/or type 2 diabetes (T2DM). The systematic literature search identified 55 studies that examined the effects of L-leucine, L-isoleucine, L-alanine, L-glutamine, L-arginine, L-lysine, glycine, L-proline, L-phenylalanine, L-glutamate, branched-chain AAs (i.e., L-leucine, L-isoleucine, and L-valine), and multiple individual L-AAs on glucose and insulin concentrations. Oral ingestion of most individual AAs induced an insulin response but did not alter glucose concentrations in healthy participants. Specific AAs (i.e., leucine and isoleucine) co-ingested with glucose exerted a synergistic effect on the postprandial insulin response and attenuated the glucose response compared to glucose intake alone in healthy participants. Oral AA ingestion as well as intravenous AA infusion was able to stimulate an insulin response and decrease glucose concentrations in T2DM and obese individuals. The extracted information is publicly available and can serve multiple purposes such as computational modeling.",
+                        "limit": 5,
+                    },
+                },
             },
         ),
     ],
@@ -768,6 +859,8 @@ async def match_tools_post(
             tools = await match_tools_by_file(match, db)
         case "semantic":
             tools = await match_tools_semantically(match, db)
+        case "dataset":
+            tools = await match_tools_by_dataset_description(match, db)
 
     # return [ToolOutMin.model_validate(tool) for tool in tools]
     return [

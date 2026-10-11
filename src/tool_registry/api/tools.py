@@ -267,11 +267,22 @@ async def search_tools_in_db(
     query = select(ToolMetadata)
     logger.debug(f"Starting tool search with parameters: {search.model_dump()}")
     if search.name:
-        logger.debug(f"Searching for tools with name like: {search.name}")
-        query = query.where(ToolMetadata.title.ilike(f"%{search.name}%"))
+        logger.debug(f"Searching for tools with name: {search.name}")
+
+        similarity = func.similarity(ToolMetadata.title, search.name)
+
+        query = query.where(ToolMetadata.title.ilike(f"%{search.name}%")).order_by(
+            similarity.desc()
+        )
     if search.description:
-        logger.debug(f"Searching for tools with description like: {search.description}")
-        query = query.where(ToolMetadata.description.ilike(f"%{search.description}%"))
+        logger.debug(f"Searching for tools with description: {search.description}")
+
+        similarity = func.word_similarity(
+            search.description,
+            ToolMetadata.description,
+        )
+
+        query = query.where(similarity >= 0.3).order_by(similarity.desc())
     if search.type:
         logger.debug(f"Searching for tools with type like: {search.type}")
         query = select(ToolMetadata).where(

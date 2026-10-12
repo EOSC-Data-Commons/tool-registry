@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 from diskcache import Cache
+from collections import defaultdict
 from pathlib import Path as FilePath
 from pydantic import BaseModel, Field, ValidationInfo, model_validator
 from typing import Annotated, Literal
@@ -758,45 +759,130 @@ async def match_tools_by_dataset_description(match, db):
     key = cache_key(match.description)
 
     if (cached := cache.get(key)) is not None:
-        tool_query = cached
+        queries = cached
     else:
-        tool_query = await ai.dataset_to_tool_query(
+        queries = await ai.dataset_to_tool_queries(
             match.description,
             api_key=EGI_LLM_API_KEY,
         )
-        cache.set(cache_key(match.description), tool_query, expire=60 * 60 * 24 * 30)
+        cache.set(cache_key(match.description), queries, expire=60 * 60 * 24 * 30)
 
-    logger.info(f"Generated tool query: {tool_query}")
-
-    query_vector = (
-        await asyncio.to_thread(
-            embed,
-            [tool_query],
-            api_key=EGI_LLM_API_KEY,
-            api_url=EMBEDDING_API,
-            model=EMBEDDING_MODEL,
-            prefix="search_query: ",
-        )
-    )[0]
-
-    distance = ToolEmbedding.vector.cosine_distance(query_vector)
-
-    stmt = (
-        select(ToolMetadata)
-        .join(
-            ToolEmbedding,
-            ToolEmbedding.tool_id == ToolMetadata.id,
-        )
-        .where(
-            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
-        )
-        .order_by(distance)
-        .limit(match.limit)
+    logger.info(
+        "Generated tool search queries:\n%s",
+        json.dumps(queries, indent=2, ensure_ascii=False),
     )
 
-    result = await db.scalars(stmt)
-    return list(result.all())
+    vectors = await asyncio.to_thread(
+        embed,
+        [q["query"] for q in queries],
+        api_key=EGI_LLM_API_KEY,
+        api_url=EMBEDDING_API,
+        model=EMBEDDING_MODEL,
+        prefix="search_query: ",
+    )
+
+    rankings = []
+
+    for vector in vectors:
+        distance = ToolEmbedding.vector.cosine_distance(vector)
+
+        stmt = (
+            select(ToolMetadata)
+            .join(
+                ToolEmbedding,
+                ToolEmbedding.tool_id == ToolMetadata.id,
+            )
+            .where(
+                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+            )
+            .order_by(distance)
+            .limit(match.limit * 3)
+        )
+
+        result = await db.scalars(stmt)
+        rankings.append(list(result.all()))
+
+    # Reciprocal Rank Fusion
+    scores = defaultdict(float)
+    tools = {}
+
+    for ranking in rankings:
+        seen = set()
+
+        for rank, tool in enumerate(ranking, start=1):
+            if tool.id in seen:
+                continue
+            seen.add(tool.id)
+
+            scores[tool.id] += 1 / (60 + rank)
+            tools[tool.id] = tool
+
+    ranked_ids = sorted(
+        scores,
+        key=scores.get,
+        reverse=True,
+    )
+
+    return [tools[tool_id] for tool_id in ranked_ids[: match.limit]]
+
+
+# async def match_tools_by_dataset_description(match, db):
+#     key = cache_key(match.description)
+#
+#     if (cached := cache.get(key)) is not None:
+#         tool_queries = cached
+#     else:
+#         # tool_query = await ai.dataset_to_tool_query(
+#         #     match.description,
+#         #     api_key=EGI_LLM_API_KEY,
+#         # )
+#         tool_queries = await ai.dataset_to_tool_queries(
+#             match.description,
+#             api_key=EGI_LLM_API_KEY,
+#         )
+#         cache.set(cache_key(match.description), tool_queries, expire=60 * 60 * 24 * 30)
+#
+#     logger.info(f"Generated tool query: {tool_queries}")
+#
+#     vectors = await asyncio.to_thread(
+#         embed,
+#         [q["query"] for q in tool_queries],
+#         api_key=EGI_LLM_API_KEY,
+#         api_url=EMBEDDING_API,
+#         model=EMBEDDING_MODEL,
+#         prefix="search_query: ",
+#     )
+#
+#     # query_vector = (
+#     #     await asyncio.to_thread(
+#     #         embed,
+#     #         [tool_query],
+#     #         api_key=EGI_LLM_API_KEY,
+#     #         api_url=EMBEDDING_API,
+#     #         model=EMBEDDING_MODEL,
+#     #         prefix="search_query: ",
+#     #     )
+#     # )[0]
+#
+#     distance = ToolEmbedding.vector.cosine_distance(query_vector)
+#
+#     stmt = (
+#         select(ToolMetadata)
+#         .join(
+#             ToolEmbedding,
+#             ToolEmbedding.tool_id == ToolMetadata.id,
+#         )
+#         .where(
+#             ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+#             ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+#         )
+#         .order_by(distance)
+#         .limit(match.limit)
+#     )
+#
+#     result = await db.scalars(stmt)
+#     return list(result.all())
 
 
 @router.post(

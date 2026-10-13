@@ -2,7 +2,7 @@ import httpx
 import json
 
 EGI_CHAT_API = "https://llm.ai.egi.eu/chat/completions"
-LLM_MODEL = "qwen3.5"
+LLM_MODEL = "qwen3.8-27b"
 
 SYSTEM_PROMPT = """
 You are a scientific software discovery assistant.

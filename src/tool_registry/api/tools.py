@@ -19,7 +19,7 @@ from fastapi import (
     Body,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, exists, literal, select, or_, cast
+from sqlalchemy import func, exists, literal, select, or_, cast, text
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 from typing import Any
@@ -326,28 +326,13 @@ async def search_tools_in_db(
         )
 
         query = query.order_by(bm25_score.asc())
+
     if search.type:
-        logger.debug(f"Searching for tools with type like: {search.type}")
-        query = select(ToolMetadata).where(
-            or_(
-                text_array_matches(
-                    ToolMetadata.types,
-                    search.type,
-                ),
-                jsonb_array_object_matches(
-                    ToolMetadata.programming_languages,
-                    search.type,
-                ),
-                jsonb_array_object_matches(
-                    ToolMetadata.runtime_platforms,
-                    search.type,
-                ),
-                jsonb_array_object_matches(
-                    ToolMetadata.software_types,
-                    search.type,
-                ),
-            )
-        )
+        term = search.type.strip().lower()
+
+        logger.debug(f"Searching for tools with type: {term}")
+
+        query = query.where(ToolMetadata.search_types.contains([term]))
     if search.keyword:
         pattern = f"%{search.keyword}%"
         unnested = func.unnest(ToolMetadata.keywords).alias("keyword")
@@ -626,6 +611,7 @@ async def get_tool_types_by_identifier(
             detail="Tool not found",
         )
 
+    # return tool.search_types
     return extract_all_types(tool)
 
 
@@ -755,6 +741,28 @@ async def match_tools_semantically(match, db):
         .order_by(distance)
         .limit(limit)
     )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        compiled = stmt.compile(
+            dialect=session.bind.dialect,
+            compile_kwargs={"literal_binds": True},
+        )
+
+        # explain_stmt = text(f"EXPLAIN (ANALYZE, BUFFERS) {compiled.string}")
+        explain_sql = f"EXPLAIN (ANALYZE, BUFFERS) {compiled}"
+
+        # result = await session.execute(
+        #     explain_stmt,
+        #     compiled.params,
+        # )
+        result = await db.execute(text(explain_sql))
+
+        plan = "\n".join(row[0] for row in result)
+
+        logger.debug(
+            "Semantic matching query plan:\n%s",
+            plan,
+        )
 
     result = await session.scalars(stmt)
     return list(result.all())

@@ -731,8 +731,6 @@ def sanitize_tool_type(value: str | None) -> str | None:
 
 async def match_tools_semantically(match, db):
     query = match.query
-    limit = match.limit
-    tool_type = sanitize_tool_type(match.category)
     session = db
     query_vector = embed(
         [query],
@@ -742,37 +740,7 @@ async def match_tools_semantically(match, db):
         prefix="search_query: ",
     )[0]
 
-    distance = ToolEmbedding.vector.cosine_distance(query_vector)
-
-    if tool_type:
-        stmt = (
-            select(ToolMetadata)
-            .join(
-                ToolEmbedding,
-                ToolEmbedding.tool_id == ToolMetadata.id,
-            )
-            .where(
-                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
-                ToolMetadata.search_types.contains([tool_type]),
-            )
-            .order_by(distance)
-            .limit(limit)
-        )
-    else:
-        stmt = (
-            select(ToolMetadata)
-            .join(
-                ToolEmbedding,
-                ToolEmbedding.tool_id == ToolMetadata.id,
-            )
-            .where(
-                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
-            )
-            .order_by(distance)
-            .limit(limit)
-        )
+    stmt = _create_vector_sql_query(match, query_vector)
 
     # Debug generated SQL
     if logger.isEnabledFor(logging.DEBUG):
@@ -796,9 +764,64 @@ async def match_tools_semantically(match, db):
     return list(result.all())
 
 
+def _create_vector_sql_query(match, vector):
+    distance = ToolEmbedding.vector.cosine_distance(vector)
+    tool_type = sanitize_tool_type(match.category)
+
+    if tool_type:
+        # This does not use HNSW index because of the pre-filtering.
+        # Which means it scans all the vectors (filtered) to find the nearest.
+        # With large filtered set it might become expensive to search.
+        filtered_embeddings = (
+            select(
+                ToolEmbedding.tool_id,
+                ToolEmbedding.vector,
+            )
+            .join(
+                ToolMetadata,
+                ToolMetadata.id == ToolEmbedding.tool_id,
+            )
+            .where(
+                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+                ToolMetadata.search_types.contains([tool_type]),
+            )
+            .cte("filtered_embeddings")
+            .prefix_with("MATERIALIZED")
+        )
+
+        distance = filtered_embeddings.c.vector.cosine_distance(vector)
+
+        stmt = (
+            select(ToolMetadata)
+            .join(
+                filtered_embeddings,
+                filtered_embeddings.c.tool_id == ToolMetadata.id,
+            )
+            .order_by(distance)
+            .limit(match.limit)
+        )
+    else:
+        # If no tool_type is defined use the fast approximate HNSW index to search
+        # for close vectors
+        stmt = (
+            select(ToolMetadata)
+            .join(
+                ToolEmbedding,
+                ToolEmbedding.tool_id == ToolMetadata.id,
+            )
+            .where(
+                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+            )
+            .order_by(distance)
+            .limit(match.limit * 3)
+        )
+    return stmt
+
+
 async def match_tools_by_dataset_description(match, db):
     key = cache_key(match.description)
-    tool_type = sanitize_tool_type(match.category)
 
     if (cached := cache.get(key)) is not None:
         queries = cached
@@ -826,58 +849,7 @@ async def match_tools_by_dataset_description(match, db):
     rankings = []
 
     for vector in vectors:
-        distance = ToolEmbedding.vector.cosine_distance(vector)
-
-        if tool_type:
-            # This does not use HNSW index because of the pre-filtering.
-            # Which means it scans all the vectors (filtered) to find the nearest.
-            # With large filtered set it might become expensive to search.
-            filtered_embeddings = (
-                select(
-                    ToolEmbedding.tool_id,
-                    ToolEmbedding.vector,
-                )
-                .join(
-                    ToolMetadata,
-                    ToolMetadata.id == ToolEmbedding.tool_id,
-                )
-                .where(
-                    ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-                    ToolEmbedding.embedding_model == EMBEDDING_MODEL,
-                    ToolMetadata.search_types.contains([tool_type]),
-                )
-                .cte("filtered_embeddings")
-                .prefix_with("MATERIALIZED")
-            )
-
-            distance = filtered_embeddings.c.vector.cosine_distance(vector)
-
-            stmt = (
-                select(ToolMetadata)
-                .join(
-                    filtered_embeddings,
-                    filtered_embeddings.c.tool_id == ToolMetadata.id,
-                )
-                .order_by(distance)
-                .limit(match.limit)
-            )
-        else:
-            # If no tool_type is defined use the fast approximate HNSW index to search
-            # for close vectors
-            stmt = (
-                select(ToolMetadata)
-                .join(
-                    ToolEmbedding,
-                    ToolEmbedding.tool_id == ToolMetadata.id,
-                )
-                .where(
-                    ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-                    ToolEmbedding.embedding_model == EMBEDDING_MODEL,
-                )
-                .order_by(distance)
-                .limit(match.limit * 3)
-            )
-
+        stmt = _create_vector_sql_query(match, vector)
         result = await db.scalars(stmt)
         rankings.append(list(result.all()))
 

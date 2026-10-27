@@ -1,4 +1,5 @@
 import logging
+import re
 import asyncio
 import hashlib
 import json
@@ -199,6 +200,7 @@ class FileToolMatchRequest(BaseModel):
 class SemanticToolMatchRequest(BaseModel):
     type: Literal["semantic"]
     query: str = Field(..., min_length=2)
+    category: str = Field(default=None)
     limit: int = Field(default=20, ge=1, le=100)
     model_config = ConfigDict(
         json_schema_extra={
@@ -216,6 +218,7 @@ class SemanticToolMatchRequest(BaseModel):
 class DatasetToolMatchRequest(BaseModel):
     type: Literal["dataset"]
     description: str = Field(..., min_length=2)
+    category: str = Field(default=None)
     limit: int = Field(default=20, ge=1, le=100)
     model_config = ConfigDict(
         json_schema_extra={
@@ -714,9 +717,22 @@ async def match_tools_by_file(
     ]
 
 
+def sanitize_tool_type(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    value = value.strip().lower()
+
+    if not re.fullmatch(r"[a-z0-9_-]+", value):
+        raise ValueError(f"Invalid tool type: {value!r}")
+
+    return value
+
+
 async def match_tools_semantically(match, db):
     query = match.query
     limit = match.limit
+    tool_type = sanitize_tool_type(match.category)
     session = db
     query_vector = embed(
         [query],
@@ -728,33 +744,45 @@ async def match_tools_semantically(match, db):
 
     distance = ToolEmbedding.vector.cosine_distance(query_vector)
 
-    stmt = (
-        select(ToolMetadata)
-        .join(
-            ToolEmbedding,
-            ToolEmbedding.tool_id == ToolMetadata.id,
+    if tool_type:
+        stmt = (
+            select(ToolMetadata)
+            .join(
+                ToolEmbedding,
+                ToolEmbedding.tool_id == ToolMetadata.id,
+            )
+            .where(
+                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+                ToolMetadata.search_types.contains([tool_type]),
+            )
+            .order_by(distance)
+            .limit(limit)
         )
-        .where(
-            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+    else:
+        stmt = (
+            select(ToolMetadata)
+            .join(
+                ToolEmbedding,
+                ToolEmbedding.tool_id == ToolMetadata.id,
+            )
+            .where(
+                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+            )
+            .order_by(distance)
+            .limit(limit)
         )
-        .order_by(distance)
-        .limit(limit)
-    )
 
+    # Debug generated SQL
     if logger.isEnabledFor(logging.DEBUG):
         compiled = stmt.compile(
             dialect=session.bind.dialect,
             compile_kwargs={"literal_binds": True},
         )
 
-        # explain_stmt = text(f"EXPLAIN (ANALYZE, BUFFERS) {compiled.string}")
         explain_sql = f"EXPLAIN (ANALYZE, BUFFERS) {compiled}"
 
-        # result = await session.execute(
-        #     explain_stmt,
-        #     compiled.params,
-        # )
         result = await db.execute(text(explain_sql))
 
         plan = "\n".join(row[0] for row in result)
@@ -770,6 +798,7 @@ async def match_tools_semantically(match, db):
 
 async def match_tools_by_dataset_description(match, db):
     key = cache_key(match.description)
+    tool_type = sanitize_tool_type(match.category)
 
     if (cached := cache.get(key)) is not None:
         queries = cached
@@ -780,7 +809,7 @@ async def match_tools_by_dataset_description(match, db):
         )
         cache.set(cache_key(match.description), queries, expire=60 * 60 * 24 * 30)
 
-    logger.info(
+    logger.debug(
         "Generated tool search queries:\n%s",
         json.dumps(queries, indent=2, ensure_ascii=False),
     )
@@ -799,19 +828,55 @@ async def match_tools_by_dataset_description(match, db):
     for vector in vectors:
         distance = ToolEmbedding.vector.cosine_distance(vector)
 
-        stmt = (
-            select(ToolMetadata)
-            .join(
-                ToolEmbedding,
-                ToolEmbedding.tool_id == ToolMetadata.id,
+        if tool_type:
+            # This does not use HNSW index because of the pre-filtering.
+            # Which means it scans all the vectors (filtered) to find the nearest.
+            # With large filtered set it might become expensive to search.
+            filtered_embeddings = (
+                select(
+                    ToolEmbedding.tool_id,
+                    ToolEmbedding.vector,
+                )
+                .join(
+                    ToolMetadata,
+                    ToolMetadata.id == ToolEmbedding.tool_id,
+                )
+                .where(
+                    ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                    ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+                    ToolMetadata.search_types.contains([tool_type]),
+                )
+                .cte("filtered_embeddings")
+                .prefix_with("MATERIALIZED")
             )
-            .where(
-                ToolEmbedding.embedding_type == EMBEDDING_TYPE,
-                ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+
+            distance = filtered_embeddings.c.vector.cosine_distance(vector)
+
+            stmt = (
+                select(ToolMetadata)
+                .join(
+                    filtered_embeddings,
+                    filtered_embeddings.c.tool_id == ToolMetadata.id,
+                )
+                .order_by(distance)
+                .limit(match.limit)
             )
-            .order_by(distance)
-            .limit(match.limit * 3)
-        )
+        else:
+            # If no tool_type is defined use the fast approximate HNSW index to search
+            # for close vectors
+            stmt = (
+                select(ToolMetadata)
+                .join(
+                    ToolEmbedding,
+                    ToolEmbedding.tool_id == ToolMetadata.id,
+                )
+                .where(
+                    ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+                    ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+                )
+                .order_by(distance)
+                .limit(match.limit * 3)
+            )
 
         result = await db.scalars(stmt)
         rankings.append(list(result.all()))

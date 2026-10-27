@@ -939,9 +939,9 @@ async def match_tools_post(
                 "semantic": {
                     "summary": "Semantic matching",
                     "description": "Match tools using semantic similarity.",
-                    "category": "galaxy",
                     "value": {
                         "type": "semantic",
+                        "category": "galaxy",
                         "query": "software for molecular docking of proteins",
                         "limit": 10,
                     },
@@ -949,9 +949,9 @@ async def match_tools_post(
                 "dataset": {
                     "summary": "Dataset matching",
                     "description": "Match tool with a dataset description",
-                    "category": "galaxy",
                     "value": {
                         "type": "dataset",
+                        "category": "galaxy",
                         "description": "Different amino acids (AAs) may exert distinct effects on postprandial glucose and insulin concentrations. A quantitative comparison of the effects of AAs on glucose and insulin kinetics in humans is currently lacking. PubMed was queried to identify intervention studies reporting glucose and insulin concentrations after acute ingestion and/or intravenous infusion of AAs in healthy adults and those living with obesity and/or type 2 diabetes (T2DM). The systematic literature search identified 55 studies that examined the effects of L-leucine, L-isoleucine, L-alanine, L-glutamine, L-arginine, L-lysine, glycine, L-proline, L-phenylalanine, L-glutamate, branched-chain AAs (i.e., L-leucine, L-isoleucine, and L-valine), and multiple individual L-AAs on glucose and insulin concentrations. Oral ingestion of most individual AAs induced an insulin response but did not alter glucose concentrations in healthy participants. Specific AAs (i.e., leucine and isoleucine) co-ingested with glucose exerted a synergistic effect on the postprandial insulin response and attenuated the glucose response compared to glucose intake alone in healthy participants. Oral AA ingestion as well as intravenous AA infusion was able to stimulate an insulin response and decrease glucose concentrations in T2DM and obese individuals. The extracted information is publicly available and can serve multiple purposes such as computational modeling.",
                         "limit": 5,
                     },

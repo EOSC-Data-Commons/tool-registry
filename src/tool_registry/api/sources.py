@@ -38,30 +38,6 @@ class HarvestSourceResponse(BaseModel):
     updated_at: datetime
 
 
-# ALLOWED_SOURCE_DOMAINS = {
-#     "zenodo.org",
-#     "github.com",
-#     "bio.tools",
-#     "workflowhub.eu",
-#     "gitlab.com",
-#     "gitlab.ethz.ch",
-# }
-#
-#
-# def is_allowed_source(url: str) -> bool:
-#     hostname = urlparse(url).hostname
-#
-#     if not hostname:
-#         return False
-#
-#     hostname = hostname.lower()
-#
-#     return any(
-#         hostname == domain or hostname.endswith(f".{domain}")
-#         for domain in ALLOWED_SOURCE_DOMAINS
-#     )
-
-
 ALLOWED_SOURCE_DOMAINS = {
     "zenodo.org",
     "github.com",

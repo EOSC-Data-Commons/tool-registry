@@ -46,74 +46,82 @@ Public research software sources
 
 The API and harvester are separate applications sharing tool metadata models and database storage. Registering a source saves a URL for harvesting; it does **not** synchronously harvest the submitted resource.
 
-## Requirements
+## Installation and running with Docker Compose
 
-- Python **3.12.8 or later**
-- [uv](https://docs.astral.sh/uv/)
-- PostgreSQL database provisioned with the schema and extensions expected by `toolmeta-harvester` (including vector search support; BM25 indexes are required for BM25 queries)
-- An EGI LLM API key for semantic and dataset matching
-- Optional: Docker with Buildx for building container images
+### Prerequisites
 
-The `toolmeta-harvester` and `mimedb` dependencies are installed from Git repositories as specified in `pyproject.toml`. Database schema initialization and populated metadata require the corresponding harvester setup; the registry does not harvest the full catalogue at startup.
+- [Docker Engine](https://docs.docker.com/engine/) with the [Docker Compose plugin](https://docs.docker.com/compose/)
+- An accessible PostgreSQL database provisioned with the shared `toolmeta-harvester` schema, vector support, and BM25 search functionality
+- An [EGI LLM service](https://llm.ai.egi.eu/) API key for semantic and dataset matching
 
-## Local development
+The Compose configuration starts **only the registry API**. It does not run PostgreSQL, harvest tools, provision database extensions, or generate embeddings. Set up and populate the catalogue separately using [toolmeta-harvester](https://github.com/EOSC-Data-Commons/toolmeta-harvester).
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/EOSC-Data-Commons/tool-registry.git
 cd tool-registry
-make install
 ```
 
-Configure PostgreSQL and credentials as described below, then start the development server:
+### 2. Configure the service
+
+Create a `.env` file next to `docker-compose.yaml` with the values needed by the existing Compose configuration:
+
+```dotenv
+TOOL_REGISTRY_DATABASE__HOST=your-postgres-host
+TOOL_REGISTRY_DATABASE__PORT=5432
+TOOL_REGISTRY_DATABASE__NAME=tooldb
+TOOL_REGISTRY_DATABASE__USER=harvester
+TOOL_REGISTRY_DATABASE__PASSWORD=replace-me
+TOOL_REGISTRY_LOGGING__LOG_LEVEL=INFO
+TOOL_REGISTRY_EGI__LLM_API_KEY=replace-me
+BASE_DIR=/app
+```
+
+Use a PostgreSQL hostname reachable **from inside the container**. `localhost` inside the registry container refers to that container, not to a database on the Docker host. For example, use the database service name if it shares a Docker network, or an appropriate reachable host address for an external PostgreSQL server.
+
+Do not commit `.env` or other secrets. The application reads its nonsecret defaults from `config/config.toml` using Dynaconf; additional settings can be supplied through the `TOOL_REGISTRY_...` environment variable convention.
+
+### 3. Build and start
 
 ```bash
-make run
+docker compose up -d --build
 ```
 
-The Makefile uses **port 8080** by default and starts Uvicorn with auto-reload:
+The existing `docker-compose.yaml` does **not** publish a host port. If you want to access the API directly from your local machine, add the following to the `tool-registry` service in `docker-compose.yaml`:
 
-- Swagger UI: http://localhost:8080/docs
-- OpenAPI JSON: http://localhost:8080/openapi.json
-- API health: http://localhost:8080/api/v1/health
-- API root: http://localhost:8080/api/v1/
-
-Override the port with `make run PORT=8000`. Uvicorn's port is set by the Makefile; the `service.listen_port` configuration does not override it for this command.
-
-### Configuration
-
-The service loads configuration using **Dynaconf**, reading `config/config.toml` and `config/.secrets.toml`. Create `config/.secrets.toml` for local secrets (never commit it):
-
-```toml
-[database]
-host = "localhost"
-port = 5432
-name = "tooldb"
-user = "harvester"
-password = "REPLACE_ME"
-
-[service]
-admin_auth_key = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
-egi_env = "development" # development, demo or production
-
-[egi]
-llm_api_key = "REPLACE_WITH_EGI_LLM_API_KEY"
+```yaml
+services:
+  tool-registry:
+    ports:
+      - "8080:8080"
 ```
 
-Nonsecret defaults, the API prefix (`/api/v1`) and logging settings are defined in `config/config.toml`.
-
-Configuration can also be overridden through Dynaconf environment variables:
+This is a fragment to **merge into the existing service**, not a replacement for the whole Compose file. The image runs Uvicorn on container port `8080`. After adding the port mapping, apply it with:
 
 ```bash
-export TOOL_REGISTRY_DATABASE__HOST=localhost
-export TOOL_REGISTRY_DATABASE__PORT=5432
-export TOOL_REGISTRY_DATABASE__NAME=tooldb
-export TOOL_REGISTRY_DATABASE__USER=harvester
-export TOOL_REGISTRY_DATABASE__PASSWORD='your-password'
-export TOOL_REGISTRY_SERVICE__EGI_ENV=development
-export TOOL_REGISTRY_EGI__LLM_API_KEY='your-key'
+docker compose up -d
 ```
 
-The service creates tables defined in its local SQLAlchemy metadata on startup. It **does not** automatically establish the full shared harvester schema, vector/BM25 extensions, indexes or populate tool records. Provision those through the [harvester project](https://github.com/EOSC-Data-Commons/toolmeta-harvester) before using search and matching.
+With this mapping, the API is available at:
+
+- Swagger UI: <http://localhost:8080/docs>
+- OpenAPI JSON: <http://localhost:8080/openapi.json>
+- Health endpoint: <http://localhost:8080/api/v1/health>
+
+For deployments behind a reverse proxy, configure networking and routing there instead of publishing a host port.
+
+### Operations
+
+```bash
+docker compose ps                  # Inspect service status
+docker compose logs -f tool-registry # Follow API logs
+docker compose up -d --build      # Rebuild and recreate after changes
+docker compose restart tool-registry # Restart the service
+docker compose down               # Stop and remove Compose containers
+```
+
+The application writes its runtime cache to `./cache`, which Compose bind-mounts at `/app/cache`. Database content is **not** managed or persisted by this Compose project.
 
 ## API reference
 
@@ -260,22 +268,7 @@ curl 'http://localhost:8080/api/v1/auth' \
   -H "Authorization: Bearer ${EGI_ACCESS_TOKEN}"
 ```
 
-For local administration, `make token` invokes the repository's admin-token script. Administrator tokens have a short acceptance window (60 seconds of clock skew) and use a SQLite nonce store to reject replay. Generate them immediately before use. Ensure the `cache/` directory exists and remains writable.
-
-## Container image
-
-The project includes a Dockerfile that builds the application with `uv` and starts Uvicorn on **port 8080**:
-
-```bash
-docker build -t tool-registry:local .
-
-docker run --rm -p 8080:8080 \
-  -v "$PWD/config:/app/config:ro" \
-  -v "$PWD/cache:/app/cache" \
-  tool-registry:local
-```
-
-The container still requires network access to the configured PostgreSQL server and EGI services. When PostgreSQL runs on the host, configure the appropriate host address reachable **from the container**, rather than assuming `localhost` refers to the host. The provided Makefile also supports multi-architecture Buildx image publishing to GitHub Container Registry. Its existing `docker-run` target maps a configurable port but does not change the Dockerfile's fixed Uvicorn port of 8080; use an explicit `docker run` mapping as above.
+For local administration, the repository includes an administrator-token script. Administrator tokens have a short acceptance window (60 seconds of clock skew) and use a SQLite nonce store to reject replay. Generate them immediately before use. Ensure `cache/` exists and remains writable.
 
 ## Implementation notes and limitations
 
@@ -288,22 +281,6 @@ The container still requires network access to the configured PostgreSQL server 
 - **Current search pagination links omit the API prefix and active filters.** Rely on `X-Total-Count` and construct URLs from your original query.
 - **CORS is currently permissive.** Restrict allowed origins for production deployment, especially where authenticated browser clients are involved.
 - **Avoid logging secrets.** Review startup DEBUG logging of database configuration before using it in production.
-- **Runtime version reporting in a Docker image may be `unknown`**, because the image does not copy `pyproject.toml`, which `get_app_version()` reads.
-
-## Development and release commands
-
-```bash
-make install           # Install locked dependencies
-make run               # Run development server (default port 8080)
-make sync              # Sync dependencies
-make token             # Generate an administrator token
-make print-version     # Print package version
-make bump              # Bump patch version, lock and commit/push
-make docker-build-dev  # Build local amd64 development image
-make docker-build      # Build and push multi-platform images
-```
-
-Be aware that `make bump`, `make docker-build` and `make release` have side effects including Git pushes or publishing images. Read the Makefile before executing release commands.
 
 ## Related projects
 

@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from uuid import UUID
-from urllib.parse import urlparse
+from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, HttpUrl
 from sqlalchemy.exc import IntegrityError
@@ -38,6 +38,30 @@ class HarvestSourceResponse(BaseModel):
     updated_at: datetime
 
 
+# ALLOWED_SOURCE_DOMAINS = {
+#     "zenodo.org",
+#     "github.com",
+#     "bio.tools",
+#     "workflowhub.eu",
+#     "gitlab.com",
+#     "gitlab.ethz.ch",
+# }
+#
+#
+# def is_allowed_source(url: str) -> bool:
+#     hostname = urlparse(url).hostname
+#
+#     if not hostname:
+#         return False
+#
+#     hostname = hostname.lower()
+#
+#     return any(
+#         hostname == domain or hostname.endswith(f".{domain}")
+#         for domain in ALLOWED_SOURCE_DOMAINS
+#     )
+
+
 ALLOWED_SOURCE_DOMAINS = {
     "zenodo.org",
     "github.com",
@@ -47,19 +71,62 @@ ALLOWED_SOURCE_DOMAINS = {
     "gitlab.ethz.ch",
 }
 
+GIT_SOURCE_DOMAINS = {
+    "github.com",
+    "gitlab.com",
+    "gitlab.ethz.ch",
+}
+
+
+def matches_domain(hostname: str, domains: set[str]) -> bool:
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}") for domain in domains
+    )
+
 
 def is_allowed_source(url: str) -> bool:
-    hostname = urlparse(url).hostname
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
 
-    if not hostname:
+        return (
+            parsed.scheme.lower() in {"http", "https"}
+            and hostname is not None
+            and parsed.username is None
+            and parsed.password is None
+            and matches_domain(hostname.lower(), ALLOWED_SOURCE_DOMAINS)
+        )
+    except ValueError:
         return False
 
-    hostname = hostname.lower()
 
-    return any(
-        hostname == domain or hostname.endswith(f".{domain}")
-        for domain in ALLOWED_SOURCE_DOMAINS
-    )
+def normalize_source_url(url: str) -> str:
+    url = url.strip()
+
+    if not is_allowed_source(url):
+        raise ValueError("Unsupported harvest source")
+
+    parsed = urlsplit(url)
+    hostname = parsed.hostname.lower()
+
+    # Canonicalize HTTPS and remove default ports.
+    scheme = "https"
+    port = parsed.port
+
+    if port not in (None, 80, 443):
+        raise ValueError("Unsupported source port")
+
+    path = parsed.path.rstrip("/")
+    query = parsed.query
+
+    if matches_domain(hostname, GIT_SOURCE_DOMAINS):
+        if path.lower().endswith(".git"):
+            path = path[:-4]
+
+        # Repository URLs don't need query parameters.
+        query = ""
+
+    return urlunsplit((scheme, hostname, path, query, "")).lower()
 
 
 @router.post(
@@ -73,13 +140,13 @@ async def create_source(
     user_info=Depends(validate_token),
     session: AsyncSession = Depends(get_db),
 ):
-    url = str(request.url)
-
-    if not is_allowed_source(url):
+    try:
+        url = normalize_source_url(str(request.url))
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported harvest source",
-        )
+            detail=str(exc),
+        ) from exc
 
     source = HarvestSource(
         url=url,

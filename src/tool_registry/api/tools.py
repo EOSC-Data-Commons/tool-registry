@@ -479,6 +479,127 @@ async def search_tools(
     ]
 
 
+async def hybrid_search(
+    query: str,
+    db: AsyncSession,
+    limit: int = 20,
+) -> list[ToolMetadata]:
+
+    candidate_limit = max(limit * 5, 100)
+
+    # 1. BM25 title search
+    title_score = ToolMetadata.title.op("<@>")(
+        func.to_bm25query(
+            query,
+            "ix_tool_metadata_title_bm25",
+        )
+    )
+
+    title_stmt = select(ToolMetadata).order_by(title_score.asc()).limit(candidate_limit)
+
+    # 2. BM25 description search
+    desc_score = ToolMetadata.description.op("<@>")(
+        func.to_bm25query(
+            query,
+            "ix_tool_metadata_description_bm25",
+        )
+    )
+
+    desc_stmt = select(ToolMetadata).order_by(desc_score.asc()).limit(candidate_limit)
+
+    # 3. Semantic search
+    vector = (
+        await asyncio.to_thread(
+            embed,
+            [query],
+            api_key=EGI_LLM_API_KEY,
+            api_url=EMBEDDING_API,
+            model=EMBEDDING_MODEL,
+            prefix="search_query: ",
+        )
+    )[0]
+
+    distance = ToolEmbedding.vector.cosine_distance(vector)
+
+    semantic_stmt = (
+        select(ToolMetadata)
+        .join(
+            ToolEmbedding,
+            ToolEmbedding.tool_id == ToolMetadata.id,
+        )
+        .where(
+            ToolEmbedding.embedding_type == EMBEDDING_TYPE,
+            ToolEmbedding.embedding_model == EMBEDDING_MODEL,
+        )
+        .order_by(distance)
+        .limit(candidate_limit)
+    )
+
+    # 4. Collect ranked results
+    rankings = []
+
+    for stmt in (title_stmt, desc_stmt, semantic_stmt):
+        result = await db.scalars(stmt)
+        rankings.append(result.all())
+
+    # 5. Reciprocal Rank Fusion
+    weights = [2.0, 1.0, 1.5]
+    scores = defaultdict(float)
+    tools = {}
+
+    for ranking, weight in zip(rankings, weights):
+        seen = set()
+
+        for rank, tool in enumerate(ranking, start=1):
+            if tool.id in seen:
+                continue
+
+            seen.add(tool.id)
+            scores[tool.id] += weight / (60 + rank)
+            tools[tool.id] = tool
+
+    # 6. Prioritise exact title matches
+    def rank_key(tool_id):
+        tool = tools[tool_id]
+
+        exact = (
+            tool.title is not None
+            and tool.title.strip().casefold() == query.strip().casefold()
+        )
+
+        return (exact, scores[tool_id])
+
+    ranked_ids = sorted(
+        scores,
+        # key=scores.get,
+        key=rank_key,
+        reverse=True,
+    )
+
+    return [tools[id] for id in ranked_ids[:limit]]
+
+
+@router.get(
+    "/search",
+    response_model=list[ToolOutMin],
+    tags=["Tools"],
+)
+async def unified_search(
+    q: str = Query(..., min_length=2, max_length=2000),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    tools = await hybrid_search(q, db, limit)
+
+    return [
+        ToolOutMin.model_validate(
+            tool,
+            context={"types": extract_all_types(tool)},
+        )
+        for tool in tools
+    ]
+
+
 @router.get(
     "/sources",
     description="Get a list of unique source domains from the tools.",

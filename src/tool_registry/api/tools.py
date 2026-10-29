@@ -508,6 +508,7 @@ async def hybrid_search(
     desc_stmt = select(ToolMetadata).order_by(desc_score.asc()).limit(candidate_limit)
 
     # 3. Semantic search
+    logging.info(f"Calling external embedding ep: {EMBEDDING_API}.")
     vector = (
         await asyncio.to_thread(
             embed,
@@ -853,6 +854,7 @@ def sanitize_tool_type(value: str | None) -> str | None:
 async def match_tools_semantically(match, db):
     query = match.query
     session = db
+    logging.info(f"Calling external embedding ep: {EMBEDDING_API}.")
     query_vector = embed(
         [query],
         api_key=EGI_LLM_API_KEY,
@@ -947,6 +949,7 @@ async def match_tools_by_dataset_description(match, db):
     if (cached := cache.get(key)) is not None:
         queries = cached
     else:
+        logger.info("Calling exteranl LLM ep.")
         queries = await ai.dataset_to_tool_queries(
             match.description,
             api_key=EGI_LLM_API_KEY,
@@ -958,6 +961,7 @@ async def match_tools_by_dataset_description(match, db):
         json.dumps(queries, indent=2, ensure_ascii=False),
     )
 
+    logger.info(f"Calling exteranl embedding ep: {EMBEDDING_API}")
     vectors = await asyncio.to_thread(
         embed,
         [q["query"] for q in queries],

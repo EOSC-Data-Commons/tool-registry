@@ -8,8 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tool_registry.db import get_db
-from tool_registry.models import HarvestSource
 from tool_registry.security import validate_token
+from toolmeta_harvester.db.models import HarvestSource
 
 
 logger = logging.getLogger(__name__)

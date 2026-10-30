@@ -520,6 +520,8 @@ async def hybrid_search(
         )
     )[0]
 
+    logging.info(f"Done with calling external embedding ep: {EMBEDDING_API}.")
+
     distance = ToolEmbedding.vector.cosine_distance(vector)
 
     semantic_stmt = (
@@ -537,12 +539,14 @@ async def hybrid_search(
     )
 
     # 4. Collect ranked results
+    logging.info("Calling postgres.")
     rankings = []
 
     for stmt in (title_stmt, desc_stmt, semantic_stmt):
         result = await db.scalars(stmt)
         rankings.append(result.all())
 
+    logging.info("Done with calling postgres.")
     # 5. Reciprocal Rank Fusion
     weights = [2.0, 1.0, 1.5]
     scores = defaultdict(float)

@@ -37,7 +37,8 @@ from tool_registry import ai
 
 
 EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
-EMBEDDING_TYPE = "description"
+# EMBEDDING_TYPE = "description"
+EMBEDDING_TYPE = "description_enriched"
 EMBEDDING_API = "https://llm.ai.egi.eu/embeddings"
 EGI_LLM_API_KEY = egi_llm_api_key()
 

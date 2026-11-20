@@ -8,20 +8,20 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 EGI_CHAT_API = "https://llm.ai.egi.eu/chat/completions"
-# LLM_MODEL = "qwen3.8-27b"
-# EXTRA_OPTIONS = {
-#     "temperature": 0.7,
-#     "top_p": 0.80,
-#     "top_k": 20,
-#     "min_p": 0.0,
-#     "presence_penalty": 1.5,
-#     "repetition_penalty": 1.0,
-#     "chat_template_kwargs": {"enable_thinking": False},
-# }
-LLM_MODEL = "mistral-small-4:119b"
+LLM_MODEL = "qwen3.8-27b"
 EXTRA_OPTIONS = {
     "temperature": 0.7,
+    "top_p": 0.80,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "repetition_penalty": 1.0,
+    "chat_template_kwargs": {"enable_thinking": False},
 }
+# LLM_MODEL = "mistral-small-4:119b"
+# EXTRA_OPTIONS = {
+#     "temperature": 0.7,
+# }
 
 SYSTEM_PROMPT = """
 You are a scientific software discovery assistant.

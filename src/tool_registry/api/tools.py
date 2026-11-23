@@ -32,21 +32,28 @@ from tool_registry.db import get_db
 # from sqlalchemy.orm import Session
 
 from toolmeta_harvester.tasks.embedding import embed
-from tool_registry.config import egi_llm_api_key
+from tool_registry.config import (
+    get_llm_endpoint,
+    get_embedding_endpoint,
+    load_ai_config,
+)
 from tool_registry import ai
 
-
-EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
-# EMBEDDING_TYPE = "description"
-EMBEDDING_TYPE = "description_enriched"
-EMBEDDING_API = "https://llm.ai.egi.eu/embeddings"
-EGI_LLM_API_KEY = egi_llm_api_key()
-
-
 logger = logging.getLogger(__name__)
+ai_config = load_ai_config()
+ai_embedding_ep_config = get_embedding_endpoint()
+ai_llm_ep_config = get_llm_endpoint()
+
+
+EMBEDDING_MODEL = ai_config.embedding_model
+EMBEDDING_TYPE = ai_config.embedding_type
+EMBEDDING_API = ai_embedding_ep_config.url
+EMBEDDING_API_KEY = ai_embedding_ep_config.key
+LLM_API_KEY = ai_llm_ep_config.key
+LLM_API = ai_llm_ep_config.url
+
+
 router = APIRouter()
-
-
 cache = Cache("cache/llm-cache")
 
 
@@ -514,7 +521,7 @@ async def hybrid_search(
         await asyncio.to_thread(
             embed,
             [query],
-            api_key=EGI_LLM_API_KEY,
+            api_key=EMBEDDING_API_KEY,
             api_url=EMBEDDING_API,
             model=EMBEDDING_MODEL,
             prefix="search_query: ",
@@ -858,7 +865,7 @@ async def match_tools_semantically(match, db):
     logging.info(f"Calling external embedding ep: {EMBEDDING_API}.")
     query_vector = embed(
         [query],
-        api_key=EGI_LLM_API_KEY,
+        api_key=EMBEDDING_API_KEY,
         api_url=EMBEDDING_API,
         model=EMBEDDING_MODEL,
         prefix="search_query: ",
@@ -953,7 +960,8 @@ async def match_tools_by_dataset_description(match, db):
         logger.info("Calling exteranl LLM ep.")
         queries = await ai.dataset_to_tool_queries(
             match.description,
-            api_key=EGI_LLM_API_KEY,
+            api_url=LLM_API,
+            api_key=LLM_API_KEY,
         )
         cache.set(cache_key(match.description), queries, expire=60 * 60 * 24 * 30)
 
@@ -966,7 +974,7 @@ async def match_tools_by_dataset_description(match, db):
     vectors = await asyncio.to_thread(
         embed,
         [q["query"] for q in queries],
-        api_key=EGI_LLM_API_KEY,
+        api_key=EMBEDDING_API_KEY,
         api_url=EMBEDDING_API,
         model=EMBEDDING_MODEL,
         prefix="search_query: ",

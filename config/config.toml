@@ -18,6 +18,16 @@ api_prefix = "/api/v1"
 admin_auth_key = "changeme"
 egi_env = "development" # Set to "production" or "development" or "demo"
 
-[egi]
+[ai_ep]
 llm_api_key="your_key"
+embedding_api_key="your_key"
+embedding_api="https://llm.ai.egi.eu/embeddings"
+llm_api="https://llm.ai.egi.eu/chat/completions"
 
+
+[ai_model]
+llm_model = "qwen3.8-27b"
+llm_options = { temperature = 0.7, top_p = 0.80, top_k = 20, min_p = 0.0, presence_penalty = 1.5, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = false } }
+embedding_model = "nomic-embed-text-v2-moe"
+embedding_options = {}
+embedding_type = "description_enriched"

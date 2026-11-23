@@ -36,6 +36,21 @@ class ServiceConfig:
     egi_env: str = "production"
 
 
+@dataclass(frozen=True)
+class AIModelConfig:
+    llm_model: str
+    llm_options: dict
+    embedding_model: str
+    embedding_options: dict
+    embedding_type: str
+
+
+@dataclass(frozen=True)
+class EndPoint:
+    url: str
+    key: str
+
+
 def get_app_version() -> str:
     try:
         with open("pyproject.toml", "rb") as f:
@@ -69,6 +84,17 @@ def load_service_config() -> ServiceConfig:
     )
 
 
+def load_ai_config() -> AIModelConfig:
+    cfg = settings.ai_model
+    return AIModelConfig(
+        llm_model=cfg.llm_model,
+        llm_options=cfg.llm_options,
+        embedding_model=cfg.embedding_model,
+        embedding_options=cfg.embedding_options,
+        embedding_type=cfg.embedding_type,
+    )
+
+
 def load_db_config() -> dict:
     db = settings.database
     return DatabaseConfig(
@@ -80,6 +106,11 @@ def load_db_config() -> dict:
     )
 
 
-def egi_llm_api_key() -> str:
-    egi = settings.egi
-    return egi["llm_api_key"]
+def get_llm_endpoint() -> EndPoint:
+    cfg = settings.ai_ep
+    return EndPoint(url=cfg.llm_api, key=cfg.llm_api_key)
+
+
+def get_embedding_endpoint() -> EndPoint:
+    cfg = settings.ai_ep
+    return EndPoint(url=cfg.embedding_api, key=cfg.embedding_api_key)

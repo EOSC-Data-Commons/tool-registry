@@ -12,21 +12,6 @@ ai_config = load_ai_config()
 LLM_MODEL = ai_config.llm_model
 EXTRA_OPTIONS = ai_config.llm_options
 
-# EGI_CHAT_API = "https://llm.ai.egi.eu/chat/completions"
-# LLM_MODEL = "qwen3.8-27b"
-# EXTRA_OPTIONS = {
-#     "temperature": 0.7,
-#     "top_p": 0.80,
-#     "top_k": 20,
-#     "min_p": 0.0,
-#     "presence_penalty": 1.5,
-#     "repetition_penalty": 1.0,
-#     "chat_template_kwargs": {"enable_thinking": False},
-# }
-# LLM_MODEL = "mistral-small-4:119b"
-# EXTRA_OPTIONS = {
-#     "temperature": 0.7,
-# }
 
 SYSTEM_PROMPT = """
 You are a scientific software discovery assistant.
@@ -156,9 +141,6 @@ async def dataset_to_tool_queries(
         content = re.sub(r"\s*```$", "", content)
 
         result = json.loads(content)
-
-        # result = json.loads(response.json()["choices"][0]["message"]["content"])
-
         queries = result["queries"]
 
         if not isinstance(queries, list) or not all(

@@ -4,24 +4,14 @@ import logging
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
+from tool_registry.config import load_ai_config
 
 logger = logging.getLogger(__name__)
+ai_config = load_ai_config()
 
-EGI_CHAT_API = "https://llm.ai.egi.eu/chat/completions"
-LLM_MODEL = "qwen3.8-27b"
-EXTRA_OPTIONS = {
-    "temperature": 0.7,
-    "top_p": 0.80,
-    "top_k": 20,
-    "min_p": 0.0,
-    "presence_penalty": 1.5,
-    "repetition_penalty": 1.0,
-    "chat_template_kwargs": {"enable_thinking": False},
-}
-# LLM_MODEL = "mistral-small-4:119b"
-# EXTRA_OPTIONS = {
-#     "temperature": 0.7,
-# }
+LLM_MODEL = ai_config.llm_model
+EXTRA_OPTIONS = ai_config.llm_options
+
 
 SYSTEM_PROMPT = """
 You are a scientific software discovery assistant.
@@ -119,6 +109,7 @@ def compress_description(
 
 async def dataset_to_tool_queries(
     description: str,
+    api_url: str,
     api_key: str,
 ) -> list[dict]:
 
@@ -127,7 +118,7 @@ async def dataset_to_tool_queries(
         logger.debug(f"NLP compressed description: {compressed_description}")
 
         response = await client.post(
-            EGI_CHAT_API,
+            api_url,
             headers={
                 "Authorization": f"Bearer {api_key}",
             },
@@ -150,9 +141,6 @@ async def dataset_to_tool_queries(
         content = re.sub(r"\s*```$", "", content)
 
         result = json.loads(content)
-
-        # result = json.loads(response.json()["choices"][0]["message"]["content"])
-
         queries = result["queries"]
 
         if not isinstance(queries, list) or not all(
